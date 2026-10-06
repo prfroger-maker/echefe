@@ -386,18 +386,48 @@ const AI_ERR = (code)=>({
   invalid_json:"Não entendi bem a foto. Tire outra, por favor! 📸",
 }[code]||"Ops! Tive um problema. Tente de novo. 🙏");
 
+// ─── AI VOICE (OpenAI TTS with accent per chef) ──────────────────────────────
+const OAI_LS = "echefe_openai_key";
+const LANG_NAME = {pt:"português do Brasil",en:"English",de:"Deutsch",es:"español",fr:"français",tr:"Türkçe",it:"italiano"};
+const CHEF_VOICE = {
+  mario:{voice:"ash", accent:"um forte e charmoso sotaque italiano, como um chef italiano expressivo, caloroso e animado, que gesticula enquanto fala"},
+  pierre:{voice:"fable", accent:"um elegante sotaque francês, como um chef parisiense refinado, charmoso e um pouco dramático"},
+  brasil:{voice:"onyx", accent:"um sotaque brasileiro caloroso e descontraído, como um cozinheiro de família alegre e acolhedor"},
+};
+let _audio=null;
+const audioEl = ()=>{ if(!_audio){ _audio=new Audio(); _audio.preload="auto"; } return _audio; };
+let _unlocked=false;
+const unlockAudio = ()=>{ if(_unlocked) return; _unlocked=true; try{ audioEl().load(); }catch{} };
+async function speakAI(text, chef, lang){
+  const key = LS.get(OAI_LS).trim(); if(!key) return false;
+  const cv = CHEF_VOICE[chef]||CHEF_VOICE.mario;
+  const ln = LANG_NAME[lang]||LANG_NAME.pt;
+  try{
+    const r = await fetch("https://api.openai.com/v1/audio/speech",{method:"POST",headers:{"Authorization":"Bearer "+key,"Content-Type":"application/json"},
+      body:JSON.stringify({model:"gpt-4o-mini-tts",voice:cv.voice,input:text,response_format:"mp3",
+        instructions:`Fale em ${ln}, com ${cv.accent}. Tom animado, natural e encorajador, como quem está cozinhando junto com o usuário. Pronuncie as palavras em ${ln} de forma clara, mantendo o sotaque.`})});
+    if(!r.ok) return false;
+    const blob = await r.blob();
+    const a = audioEl();
+    try{ if(a.src&&a.src.startsWith("blob:")) URL.revokeObjectURL(a.src); }catch{}
+    a.src = URL.createObjectURL(blob);
+    await a.play();
+    return true;
+  }catch{ return false; }
+}
+
 // ─── VOICE ENGINE: always listening for "Ei Chef" ─────────────────────────────
 const WAKE_RE = /\b(ei|ey|hey|hei|oi|e aí|aí|ai|ê|é)[\s,!.]*(chef|chefe|chefs|xefe|chefi|shef|shefe)\b[\s,!.:?]*/i;
 
-function useVoiceEngine(lang, onCommand){
+function useVoiceEngine(lang, onCommand, chef){
   const SR = typeof window!=="undefined" && (window.SpeechRecognition||window.webkitSpeechRecognition);
   const [state, setState] = useState(SR?"starting":"unsupported"); // starting|listening|need_tap|blocked|unsupported|off
   const [awaiting, setAwaiting] = useState(false);
   const [heard, setHeard] = useState("");
   const wantOn = useRef(true), speaking = useRef(false), recog = useRef(null);
-  const awaitUntil = useRef(0), wakeLock = useRef(null), cmdRef = useRef(onCommand), langRef = useRef(lang);
+  const awaitUntil = useRef(0), wakeLock = useRef(null), cmdRef = useRef(onCommand), langRef = useRef(lang), chefRef = useRef(chef);
   const restartTimer = useRef(null), startedOk = useRef(false), needTap = useRef(false), firstLang = useRef(true);
-  cmdRef.current = onCommand; langRef.current = lang;
+  cmdRef.current = onCommand; langRef.current = lang; chefRef.current = chef;
 
   const setAwait = (ms)=>{ awaitUntil.current = ms?Date.now()+ms:0; setAwaiting(!!ms); };
 
@@ -461,19 +491,26 @@ function useVoiceEngine(lang, onCommand){
     try{ const vs = window.speechSynthesis.getVoices(); return vs.find(v=>v.lang===lc) || vs.find(v=>v.lang&&v.lang.slice(0,2)===lc.slice(0,2)) || null; }catch{ return null; }
   };
 
-  const speak = (text, thenListen)=>{
-    if(!window.speechSynthesis){ if(thenListen) setAwait(7000); return; }
-    const clean = String(text).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}*#_`>|]/gu,"").replace(/\s+/g," ").trim().slice(0,900);
-    if(!clean) return;
-    speaking.current = true; stopRecog();
+  const speakDevice = (clean, after)=>{
+    if(!window.speechSynthesis){ after(); return; }
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(clean);
     const lc = VOICE_LANG[langRef.current]||"pt-BR";
     u.lang = lc; const v = pickVoice(lc); if(v) u.voice = v;
     u.rate = 1.03;
-    const after = ()=>{ speaking.current=false; if(thenListen) setAwait(7000); if(wantOn.current) start(); };
     u.onend = after; u.onerror = after;
     window.speechSynthesis.speak(u);
+  };
+
+  const speak = (text, thenListen)=>{
+    const clean = String(text).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}*#_`>|]/gu,"").replace(/\s+/g," ").trim().slice(0,1500);
+    if(!clean){ if(thenListen) setAwait(7000); return; }
+    speaking.current = true; stopRecog();
+    try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch{}
+    try{ audioEl().pause(); }catch{}
+    let done=false;
+    const after = ()=>{ if(done) return; done=true; speaking.current=false; if(thenListen) setAwait(7000); if(wantOn.current) start(); };
+    speakAI(clean, chefRef.current, langRef.current).then(ok=>{ if(!ok) speakDevice(clean, after); else { const a=audioEl(); a.onended=after; a.onerror=after; } });
   };
 
   // talk-now button: skip the wake word once
@@ -488,7 +525,7 @@ function useVoiceEngine(lang, onCommand){
     const vis = ()=>{ if(document.visibilityState==="visible"&&wantOn.current){ lockScreen(); if(!recog.current&&!speaking.current) start(); } };
     document.addEventListener("visibilitychange",vis);
     // a first tap anywhere unlocks auto-start on phones that require it
-    const firstTap = ()=>{ if(needTap.current){ needTap.current=false; wantOn.current=true; setState("starting"); start(); } };
+    const firstTap = ()=>{ unlockAudio(); if(needTap.current){ needTap.current=false; wantOn.current=true; setState("starting"); start(); } };
     document.addEventListener("pointerdown",firstTap);
     try{ window.speechSynthesis&&window.speechSynthesis.getVoices(); }catch{}
     return ()=>{ document.removeEventListener("visibilitychange",vis); document.removeEventListener("pointerdown",firstTap); stopRecog(); };
@@ -884,6 +921,7 @@ function Profile({ chef, setChef, lang, setLang, prefs, setPrefs, voice }) {
     <div className="screen">
       <div className="hdr"><div className="logo" style={{fontSize:22}}>{L.profile}</div></div>
       <ApiKeyCard/>
+      <VoiceKeyCard chef={chef} lang={lang}/>
       <div className="card">
         <div style={{fontSize:12,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:1}}>🎙️ Ei Chef (voz)</div>
         <div style={{fontSize:13,color:T.cream,lineHeight:1.5,marginBottom:10}}>
@@ -957,6 +995,35 @@ function Profile({ chef, setChef, lang, setLang, prefs, setPrefs, voice }) {
   );
 }
 
+// ─── AI VOICE KEY CARD ────────────────────────────────────────────────────────
+function VoiceKeyCard({ chef, lang }){
+  const [key, setKey] = useState(()=>LS.get(OAI_LS));
+  const [show, setShow] = useState(false);
+  const [status, setStatus] = useState(()=>LS.get(OAI_LS)?"saved":"");
+  const [testing, setTesting] = useState(false);
+  const save = async()=>{
+    const k = key.trim(); LS.set(OAI_LS,k); setKey(k);
+    if(!k){ setStatus(""); return; }
+    setTesting(true); setStatus("");
+    unlockAudio();
+    const ok = await speakAI(`Olá! Eu sou o ${CHEFS[chef].name}. Vamos cozinhar juntos?`, chef, lang);
+    setStatus(ok?"ok":"err"); setTesting(false);
+  };
+  const msg = {ok:"✅ Voz de IA funcionando! Ouviu o sotaque?",saved:"🔑 Chave de voz salva neste celular.",err:"❌ Não funcionou. Confira a chave e se há crédito em platform.openai.com → Billing."}[status]||"";
+  return (
+    <div className="card">
+      <div style={{fontSize:12,color:T.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>🗣️ Voz de IA com sotaque (OpenAI)</div>
+      <div style={{fontSize:12,color:T.textSub,lineHeight:1.5,marginBottom:10}}>Opcional. Crie em <b style={{color:T.cream}}>platform.openai.com → API keys</b>. Sem ela, o chef usa a voz do celular.</div>
+      <div style={{display:"flex",gap:8}}>
+        <input className="ci" style={{borderRadius:12,minWidth:0}} type={show?"text":"password"} placeholder="sk-..." value={key} onChange={e=>setKey(e.target.value)} autoComplete="off" autoCapitalize="off" spellCheck={false}/>
+        <button onClick={()=>setShow(s=>!s)} className="pbtn" style={{borderRadius:12}}>{show?"🙈":"👁️"}</button>
+      </div>
+      <button className="bp" style={{width:"100%",margin:"10px 0 0"}} onClick={save} disabled={testing}>{testing?"⏳ Testando a voz...":"Salvar e ouvir"}</button>
+      {msg&&<div style={{fontSize:13,color:status==="ok"?T.green:T.gold,marginTop:10}}>{msg}</div>}
+    </div>
+  );
+}
+
 // ─── API KEY CARD ─────────────────────────────────────────────────────────────
 function ApiKeyCard(){
   const [key, setKey] = useState(()=>LS.get(KEY_LS));
@@ -996,7 +1063,7 @@ function App() {
   useEffect(()=>{ LS.set("echefe_chef",chef); },[chef]);
   useEffect(()=>{ LS.set("echefe_lang",lang); },[lang]);
   useEffect(()=>{ LS.set("echefe_prefs",JSON.stringify(prefs)); },[prefs]);
-  const voice = useVoiceEngine(lang, (text)=>{ setScreen("chat"); setVoiceCmd({text,id:Date.now()}); });
+  const voice = useVoiceEngine(lang, (text)=>{ setScreen("chat"); setVoiceCmd({text,id:Date.now()}); }, chef);
   const L = LANGS[lang];
   const nav = [
     {id:"home",label:L.home,icon:IC.home},
