@@ -9,7 +9,7 @@ const T = {
 
 const LANGS = {
   pt:{ flag:"🇧🇷", name:"Português",
-    home:"Início", chat:"Chef IA", week:"Semana", shop:"Compras", profile:"Perfil",
+    recipes:"Receitas", home:"Início", chat:"Chef IA", week:"Semana", shop:"Compras", profile:"Perfil",
     heroTitle:"Ei, Chef! O que vamos cozinhar?", heroSub:"Texto, foto ou voz — estou aqui!",
     quickSug:"Sugestões rápidas", sendPhoto:"📷 Enviar foto",
     typeMsg:"Escreva para o Chef...", shopList:"Lista de Compras",
@@ -23,13 +23,13 @@ const LANGS = {
     snapBtn:"📸 Tirar Foto Agora", analyzing:"⏳ Analisando...",
     ingredientsBtn:"🥕 Analisar ingredientes", analyzePhoto:"📷 Analisando ingredientes",
     days:["Segunda","Terça","Quarta","Quinta","Sexta","Sábado","Domingo"],
-    greeting:"Olá! Sou o eChefe, seu chef companheiro! 👨‍🍳\n\nMe diga o que você tem, envie uma foto dos ingredientes, ou me pergunte qualquer coisa sobre culinária.\n\nQuer cozinhar agora? Toque em 🍳 Modo Cozinha para eu te guiar passo a passo!",
+    greeting:"Meu truta, o que vamos cozinhar hoje? 👨‍🍳\n\nMe mostra os ingredientes que você tem aí (📷 foto ou é só falar) e vamos preparar uma comida caprichada!",
     chips:["O que fazer com frango?","Receita rápida 30 min","Como usar airfryer?","Cardápio da semana"],
     system:`Você é o eChefe, um chef assistente ESPECIALIZADO em culinária e APENAS culinária.
 REGRAS: Responda APENAS sobre receitas, ingredientes, técnicas, equipamentos (fogão, forno, airfryer, churrasqueira, etc), planejamento de refeições, lista de compras. Se perguntarem outro assunto, redirecione de forma divertida para culinária. Seja divertido, encorajador e apaixonado por comida. Adapte instruções do iniciante ao profissional. Responda sempre em Português do Brasil.`},
 
   en:{ flag:"🇬🇧", name:"English",
-    home:"Home", chat:"AI Chef", week:"Week", shop:"Shopping", profile:"Profile",
+    recipes:"Recipes", home:"Home", chat:"AI Chef", week:"Week", shop:"Shopping", profile:"Profile",
     heroTitle:"Hey Chef! What shall we cook?", heroSub:"Text, photo or voice — I'm here!",
     quickSug:"Quick suggestions", sendPhoto:"📷 Send photo",
     typeMsg:"Write to the Chef...", shopList:"Shopping List",
@@ -48,7 +48,7 @@ REGRAS: Responda APENAS sobre receitas, ingredientes, técnicas, equipamentos (f
     system:`You are eChefe, a chef assistant specialized EXCLUSIVELY in culinary arts. RULES: Answer ONLY about recipes, ingredients, cooking techniques, kitchen appliances (stove, oven, airfryer, BBQ, etc), meal planning, shopping lists. If asked about anything else, redirect to cooking in a fun way. Be fun, encouraging and passionate about food. Always answer in English.`},
 
   de:{ flag:"🇩🇪", name:"Deutsch",
-    home:"Start", chat:"KI-Koch", week:"Woche", shop:"Einkauf", profile:"Profil",
+    recipes:"Rezepte", home:"Start", chat:"KI-Koch", week:"Woche", shop:"Einkauf", profile:"Profil",
     heroTitle:"Hey Chef! Was kochen wir?", heroSub:"Text, Foto oder Stimme — ich bin hier!",
     quickSug:"Schnelle Vorschläge", sendPhoto:"📷 Foto senden",
     typeMsg:"An den Koch schreiben...", shopList:"Einkaufsliste",
@@ -67,7 +67,7 @@ REGRAS: Responda APENAS sobre receitas, ingredientes, técnicas, equipamentos (f
     system:`Sie sind eChefe, ein Koch-Assistent spezialisiert AUSSCHLIESSLICH auf Kulinarik. REGELN: Antworten Sie NUR über Rezepte, Zutaten, Kochtechniken, Küchengeräte. Bei anderen Themen zurück zur Küche leiten. Immer auf Deutsch antworten.`},
 
   es:{ flag:"🇪🇸", name:"Español",
-    home:"Inicio", chat:"Chef IA", week:"Semana", shop:"Compras", profile:"Perfil",
+    recipes:"Recetas", home:"Inicio", chat:"Chef IA", week:"Semana", shop:"Compras", profile:"Perfil",
     heroTitle:"¡Ei Chef! ¿Qué cocinamos?", heroSub:"¡Texto, foto o voz — aquí estoy!",
     quickSug:"Sugerencias rápidas", sendPhoto:"📷 Enviar foto",
     typeMsg:"Escribe al Chef...", shopList:"Lista de Compras",
@@ -86,7 +86,7 @@ REGRAS: Responda APENAS sobre receitas, ingredientes, técnicas, equipamentos (f
     system:`Eres eChefe, un asistente de chef especializado EXCLUSIVAMENTE en artes culinarias. REGLAS: Responde SOLO sobre recetas, ingredientes, técnicas, electrodomésticos, planificación. Responde siempre en Español.`},
 
   fr:{ flag:"🇫🇷", name:"Français",
-    home:"Accueil", chat:"Chef IA", week:"Semaine", shop:"Courses", profile:"Profil",
+    recipes:"Recettes", home:"Accueil", chat:"Chef IA", week:"Semaine", shop:"Courses", profile:"Profil",
     heroTitle:"Eh Chef! Que cuisinons-nous?", heroSub:"Texte, photo ou voix — je suis là!",
     quickSug:"Suggestions rapides", sendPhoto:"📷 Envoyer photo",
     typeMsg:"Écrire au Chef...", shopList:"Liste de Courses",
@@ -105,7 +105,7 @@ REGRAS: Responda APENAS sobre receitas, ingredientes, técnicas, equipamentos (f
     system:`Vous êtes eChefe, un assistant chef spécialisé EXCLUSIVEMENT dans les arts culinaires. RÈGLES: Répondez UNIQUEMENT sur recettes, ingrédients, techniques, appareils. Répondez toujours en Français.`},
 
   tr:{ flag:"🇹🇷", name:"Türkçe",
-    home:"Ana Sayfa", chat:"Şef YZ", week:"Hafta", shop:"Alışveriş", profile:"Profil",
+    recipes:"Tarifler", home:"Ana Sayfa", chat:"Şef YZ", week:"Hafta", shop:"Alışveriş", profile:"Profil",
     heroTitle:"Ei Şef! Ne pişirelim?", heroSub:"Metin, fotoğraf veya ses — buradayım!",
     quickSug:"Hızlı öneriler", sendPhoto:"📷 Fotoğraf gönder",
     typeMsg:"Şefe yaz...", shopList:"Alışveriş Listesi",
@@ -124,7 +124,7 @@ REGRAS: Responda APENAS sobre receitas, ingredientes, técnicas, equipamentos (f
     system:`Siz eChefe'siniz, YALNIZCA mutfak sanatlarında uzmanlaşmış bir şef asistanısınız. KURALLAR: SADECE tarifler, malzemeler, pişirme teknikleri, mutfak aletleri hakkında yanıt verin. Her zaman Türkçe yanıt verin.`},
 
   it:{ flag:"🇮🇹", name:"Italiano",
-    home:"Inizio", chat:"Chef IA", week:"Settimana", shop:"Spesa", profile:"Profilo",
+    recipes:"Ricette", home:"Inizio", chat:"Chef IA", week:"Settimana", shop:"Spesa", profile:"Profilo",
     heroTitle:"Ehi Chef! Cosa cuciniamo?", heroSub:"Testo, foto o voce — sono qui!",
     quickSug:"Suggerimenti veloci", sendPhoto:"📷 Invia foto",
     typeMsg:"Scrivi al Chef...", shopList:"Lista della Spesa",
@@ -171,6 +171,19 @@ const RECIPES = [
   {emoji:"🥗",name:"Salada vietnamita",time:"15 min",cuisine:"Vietnamita",cal:"180 kcal",appliance:"Nenhum"},
 ];
 
+
+// ─── CHEF RULES (personal chef cooking together in real time) ────────────────
+const CHEF_RULES = `COMO VOCÊ TRABALHA — você é o chef particular do usuário e cozinha JUNTO com ele, em tempo real:
+- Seja amigável, paciente, comunicativo e extremamente competente. Converse de forma natural, como um amigo chef.
+- Você domina gastronomia brasileira, italiana, francesa, alemã e internacional. O objetivo é comida caseira com sabor, qualidade e técnica de restaurante. Ensine o usuário a cozinhar MELHOR, não só a seguir receitas.
+- QUANDO O USUÁRIO DISSER QUE VAI PREPARAR UM PRATO: (1) se ele ainda não disse, pergunte quais ingredientes tem e para quantas pessoas vai cozinhar; (2) sugira a melhor forma de preparar; (3) apresente os ingredientes com quantidades e a sequência geral em poucas linhas; (4) depois guie APENAS uma ou duas etapas por vez; (5) termine cada etapa perguntando se pode seguir e ESPERE a confirmação dele; (6) adapte as instruções ao que está acontecendo na cozinha. NUNCA despeje dez etapas de uma vez durante o preparo.
+- CONTROLE DO PREPARO: diga a intensidade do fogo também na escala de 1 a 9 do fogão (ex.: "fogo médio-alto, 7 de 9"), tempos de cozimento, temperaturas em °C, como usar forno convencional e air fryer, o momento certo de cada tempero e as técnicas (selar, refogar, reduzir, finalizar). Explique em uma frase POR QUE a técnica melhora o resultado.
+- AJUSTES: se algo der errado (molho ácido, comida salgada, carne soltando água, fogo forte demais, etc.), ajude a corrigir sem precisar recomeçar.
+- Considere SEMPRE tudo o que já foi para a panela nesta conversa. Nunca peça para adicionar um ingrediente que já foi usado. Se o usuário mudar de ideia, adapte a partir do que já foi feito.
+- Respostas curtas enquanto ele executa uma tarefa; explique com mais detalhes só quando ele pedir.
+- Não invente o que não sabe. Para ponto e segurança de carnes, recomende termômetro culinário e diga a temperatura interna em °C.`;
+const DEFAULT_TASTE = "Gosto de comida muito saborosa, bem temperada, com equilíbrio entre os ingredientes e aparência bonita. Prefiro receitas práticas, mas uso técnicas profissionais quando realmente melhoram o resultado. Atenção especial a carnes, massas, molhos, assados, culinária brasileira e refeições familiares.";
+
 // ─── FIRE BACKGROUND ──────────────────────────────────────────────────────────
 function FireBG() {
   const ref = useRef(null), raf = useRef(null);
@@ -214,11 +227,12 @@ const IC = {
   send:<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z"/></svg>,
   cam:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>,
   check:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20,6 9,17 4,12"/></svg>,
+  star:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><polygon points="12,2 15.1,8.6 22,9.3 16.8,14 18.2,21 12,17.3 5.8,21 7.2,14 2,9.3 8.9,8.6"/></svg>,
   trash:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>,
 };
 
 // ─── COOK FEEDBACK CARD ───────────────────────────────────────────────────────
-function CookFeedback({ score, comment, nextStep, chefColor, emoji }) {
+function CookFeedback({ score, comment, fix, nextStep, chefColor, emoji }) {
   const stars = Math.min(5, Math.max(1, Math.round((score/10)*5)));
   return (
     <div style={{background:`linear-gradient(135deg,${chefColor}18,${chefColor}08)`,border:`1px solid ${chefColor}44`,borderRadius:14,padding:14,margin:"4px 0",animation:"slideUp .4s ease",maxWidth:"88%",alignSelf:"flex-start"}}>
@@ -235,6 +249,12 @@ function CookFeedback({ score, comment, nextStep, chefColor, emoji }) {
         <span style={{fontSize:9,color:T.accent,background:"rgba(255,107,0,.15)",padding:"2px 7px",borderRadius:8,fontWeight:700,marginLeft:"auto"}}>📸 AO VIVO</span>
       </div>
       {comment&&<div style={{fontSize:13,color:T.cream,lineHeight:1.5,marginBottom:nextStep?8:0}}>{comment}</div>}
+      {fix&&(
+        <div style={{background:"rgba(255,184,0,.10)",border:"1px solid rgba(255,184,0,.3)",borderRadius:10,padding:"8px 12px",marginTop:6}}>
+          <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:3}}>⚠ Corrigir</div>
+          <div style={{fontSize:13,color:T.cream,lineHeight:1.4}}>{fix}</div>
+        </div>
+      )}
       {nextStep&&(
         <div style={{background:"rgba(255,107,0,.12)",border:"1px solid rgba(255,107,0,.25)",borderRadius:10,padding:"8px 12px",marginTop:6}}>
           <div style={{fontSize:10,color:T.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:3}}>▶ Próximo passo</div>
@@ -259,7 +279,7 @@ function Home({ go, chef, lang }) {
         <div className="hero-s">{L.heroSub}</div>
       </button>
       <div className="qg">
-        {[["📷","Foto","Analise ingredientes","chat"],["📅",L.week,"Cardápio completo","week"],["🛒",L.shop,"Lista de compras","shop"],["⚙️",L.profile,"Idioma e preferências","profile"]].map(([e,t,s,sc])=>(
+        {[["📷","Foto","Analise ingredientes","chat"],["📅",L.week,"Cardápio completo","week"],["🛒",L.shop,"Lista de compras","shop"],["⭐",L.recipes||"Receitas","Minhas receitas salvas","recipes"]].map(([e,t,s,sc])=>(
           <button key={sc} className="qb" onClick={()=>go(sc)}>
             <span className="qi">{e}</span><div className="qt">{t}</div><div className="qs">{s}</div>
           </button>
@@ -385,6 +405,27 @@ const AI_ERR = (code)=>({
   image_rejected:"Não consegui ler essa foto. Tente outra. 📷",
   invalid_json:"Não entendi bem a foto. Tire outra, por favor! 📸",
 }[code]||"Ops! Tive um problema. Tente de novo. 🙏");
+
+
+// ─── LOCAL STORAGE: recipes + chat ───────────────────────────────────────────
+const RECIPES_LS = "echefe_recipes", CHAT_LS = "echefe_chat";
+const loadJSON = (k, d)=>{ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch{ return d; } };
+const saveJSON = (k, v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch{ return false; } };
+const loadRecipes = ()=>loadJSON(RECIPES_LS, []);
+const saveRecipes = (list)=>{
+  if(saveJSON(RECIPES_LS, list)) return true;
+  // storage full: drop photos of the oldest recipes until it fits
+  const copy = list.map(r=>({...r}));
+  for(let i=copy.length-1;i>=0;i--){ if(copy[i].photo){ copy[i].photo=null; if(saveJSON(RECIPES_LS, copy)) return true; } }
+  return false;
+};
+const makeThumb = (file, max)=>new Promise((res)=>{
+  const url = URL.createObjectURL(file); const img = new Image();
+  img.onload = ()=>{ const sc=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement("canvas"); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc); c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg",0.72)); };
+  img.onerror = ()=>{ URL.revokeObjectURL(url); res(null); };
+  img.src = url;
+});
+const fmtDate = (ts)=>{ try{ return new Date(ts).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}); }catch{ return ""; } };
 
 // ─── AI VOICE (OpenAI TTS with accent per chef) ──────────────────────────────
 const OAI_LS = "echefe_openai_key";
@@ -627,14 +668,16 @@ function VoiceBar({ v, chefName }){
 }
 
 // ─── CHAT ─────────────────────────────────────────────────────────────────────
-function Chat({ chef, lang, prefs, voice, voiceCmd }) {
+function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
   const p = CHEFS[chef], L = LANGS[lang];
-  const sysExtra = `\nPersonalidade: ${p.personality}\nNível do usuário: ${prefs.level}. Equipamento preferido: ${prefs.appliance}.`;
+  const sysExtra = `\n\n${CHEF_RULES}\n\nPersonalidade: ${p.personality}\nNível do usuário: ${prefs.level}. Equipamento preferido: ${prefs.appliance}. Dieta: ${prefs.diet}.\nGosto pessoal do usuário: ${prefs.taste||DEFAULT_TASTE}`;
 
-  const [msgs, setMsgs] = useState([{role:"chef",text:L.greeting}]);
+  const saved0 = useRef(loadJSON(CHAT_LS, null)).current;
+  const [msgs, setMsgs] = useState(()=> saved0&&Array.isArray(saved0.msgs)&&saved0.msgs.length ? saved0.msgs : [{role:"chef",text:L.greeting}]);
+  const [savingRecipe, setSavingRecipe] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [hist, setHist] = useState([]);
+  const [hist, setHist] = useState(()=> saved0&&Array.isArray(saved0.hist) ? saved0.hist : []);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [photoB64, setPhotoB64] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -647,33 +690,37 @@ function Chat({ chef, lang, prefs, voice, voiceCmd }) {
   const fileRef = useRef(null);
   const cookFileRef = useRef(null);
   const busyRef = useRef(false);
-  const histRef = useRef([]);
+  const histRef = useRef(saved0&&Array.isArray(saved0.hist) ? saved0.hist : []);
+  const lastPhotoRef = useRef(null);
 
   useEffect(()=>{ histRef.current = hist; },[hist]);
+  // keep the conversation even if the app is closed
+  useEffect(()=>{ if(busy) return; saveJSON(CHAT_LS,{msgs:msgs.slice(-80).map(m=>m.img&&!String(m.img).startsWith("data:")?{...m,img:null}:m),hist:hist.slice(-60)}); },[msgs,hist,busy]);
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,busy]);
 
   const voiceOn = voice.state==="listening";
   const speak = voice.speak;
 
-  const handlePhoto = (e)=>{
+  const handlePhoto = async(e)=>{
     const file = e.target.files?.[0]; if(!file) return;
-    setPhotoPreview(URL.createObjectURL(file));
+    setPhotoPreview(await makeThumb(file,320) || URL.createObjectURL(file));
     setPhotoB64(file);
     e.target.value="";
   };
 
-  const handleCookPhoto = (e)=>{
+  const handleCookPhoto = async(e)=>{
     const file = e.target.files?.[0]; if(!file) return;
     setFlashAnim(true);
     setTimeout(()=>setFlashAnim(false),700);
-    const url = URL.createObjectURL(file);
+    const url = await makeThumb(file,320) || URL.createObjectURL(file);
+    makeThumb(file,560).then(t=>{ if(t) lastPhotoRef.current=t; });
     e.target.value="";
     setPhotoCount(n=>n+1);
     analyzeCookPhoto(file, url);
   };
 
-  const rulesTurn = ()=>({role:"user",content:`${L.system}${sysExtra}\n\n(Estas são suas instruções permanentes como chef. Responda à próxima mensagem do usuário seguindo-as. Respostas curtas e práticas, no máximo ~150 palavras, sem markdown pesado.)`});
-  const recentHist = ()=>histRef.current.slice(-12);
+  const rulesTurn = ()=>({role:"user",content:`${L.system}${sysExtra}\n\n(Estas são suas instruções permanentes como chef. Responda à próxima mensagem do usuário seguindo-as. Seja conciso e prático, sem markdown pesado.)`});
+  const recentHist = ()=>{ const h=histRef.current.slice(-40); let total=0, out=[]; for(let i=h.length-1;i>=0;i--){ total+=h[i].content.length; if(total>30000) break; out.unshift(h[i]); } if(out.length&&out[0].role!=="user") out.shift(); return out; };
   const addChef = (text)=>setMsgs(m=>[...m,{role:"chef",text}]);
   const done = ()=>{ busyRef.current=false; setBusy(false); setAnalyzing(false); setCookAnalyzing(false); };
 
@@ -683,7 +730,7 @@ function Chat({ chef, lang, prefs, voice, voiceCmd }) {
     setMsgs(m=>[...m,{role:"user",text:L.analyzePhoto||"📷 Analisando ingredientes",img:photoPreview}]);
     const file = photoB64;
     setPhotoPreview(null); setPhotoB64(null);
-    const prompt = `${L.system}${sysExtra}\n\nA imagem anexada é uma foto dos ingredientes que o usuário tem em casa. Identifique os ingredientes e sugira 3 receitas práticas. Para cada receita: nome, tempo de preparo, dificuldade e equipamento ideal. Seja entusiasmado e divertido!`;
+    const prompt = `${L.system}${sysExtra}\n\nA imagem anexada é uma foto dos ingredientes que o usuário tem em casa. Liste só os ingredientes que dá para identificar com segurança na foto (não invente). Sugira 3 pratos saborosos e práticos com eles, cada um com nome, tempo, dificuldade e equipamento ideal. No fim, pergunte para quantas pessoas ele vai cozinhar e qual prato quer fazer.`;
     try{
       const {text} = await askAI(prompt,{images:file,cache:false});
       addChef(text);
@@ -697,20 +744,22 @@ function Chat({ chef, lang, prefs, voice, voiceCmd }) {
     if(busyRef.current) return;
     busyRef.current=true; setBusy(true); setCookAnalyzing(true);
     setMsgs(m=>[...m,{role:"user",text:"📸 Olha como está ficando!",img:previewUrl,isCook:true}]);
-    const ctx = recentHist().map(t=>`${t.role==="user"?"Usuário":"Chef"}: ${t.content}`).join("\n").slice(-2500);
+    const ctx = recentHist().map(t=>`${t.role==="user"?"Usuário":"Chef"}: ${t.content}`).join("\n").slice(-8000);
     const prompt = `${L.system}${sysExtra}
 
 ${ctx?`Conversa até agora:\n${ctx}\n\n`:""}A imagem anexada mostra um alimento sendo PREPARADO/COZIDO agora (não ingredientes crus).
-Analise cor, textura e ponto de cozimento. Responda APENAS com um objeto JSON, sem texto extra:
-{"score":8,"comment":"comentário animado sobre cor, textura, ponto","nextStep":"próximo passo concreto agora"}`;
+Analise com cuidado só o que é VISÍVEL na foto: douramento da carne, quantidade de líquido na panela, consistência e redução do molho, coloração dos ingredientes, textura das massas, sinais de caramelização ou de queimado, e o estado geral do preparo. Não invente detalhes que a imagem não mostra. Se for preciso saber a temperatura interna (carnes), recomende termômetro culinário com a temperatura em °C. Leve em conta a conversa acima (o que já foi para a panela).
+Responda APENAS com um objeto JSON, sem texto extra:
+{"score":8,"comment":"o que você observa na foto, em 1-2 frases","fix":"o que corrigir agora (ou vazio se está tudo certo)","nextStep":"próximo passo concreto agora"}`;
     try{
       const parsed = await askAI(prompt,{images:file,cache:false},true);
       const score = Math.min(10,Math.max(1,Number(parsed&&parsed.score)||7));
       const comment = String((parsed&&parsed.comment)||"Está indo muito bem!");
       const nextStep = parsed&&parsed.nextStep?String(parsed.nextStep):null;
-      setMsgs(m=>[...m,{role:"chef",text:"",isCookFeedback:true,score,comment,nextStep}]);
-      setHist(h=>[...h,{role:"user",content:"[Enviei uma foto do preparo]"},{role:"assistant",content:`Nota ${score}/10. ${comment}${nextStep?" Próximo passo: "+nextStep:""}`}]);
-      if(voiceOn) speak(`${comment}. ${nextStep?"Próximo passo: "+nextStep:""}`,true);
+      const fix = parsed&&parsed.fix?String(parsed.fix).trim():"";
+      setMsgs(m=>[...m,{role:"chef",text:"",isCookFeedback:true,score,comment,fix,nextStep}]);
+      setHist(h=>[...h,{role:"user",content:"[Enviei uma foto do preparo]"},{role:"assistant",content:`Nota ${score}/10. ${comment}${fix?" Corrigir: "+fix:""}${nextStep?" Próximo passo: "+nextStep:""}`}]);
+      if(voiceOn) speak(`${comment}. ${fix?fix+". ":""}${nextStep?"Próximo passo: "+nextStep:""}`,true);
     }catch(e){ addChef(AI_ERR(e&&e.code)); }
     done();
   };
@@ -737,6 +786,35 @@ Analise cor, textura e ponto de cozimento. Responda APENAS com um objeto JSON, s
     }
     done();
   };
+
+  // ─── SAVE RECIPE (favorites with my adjustments) ───
+  const saveRecipe = async()=>{
+    if(savingRecipe||busyRef.current) return;
+    const convo = histRef.current.map(t=>`${t.role==="user"?"Usuário":"Chef"}: ${t.content}`).join("\n").slice(-20000);
+    if(convo.length<40){ addChef("Ainda não cozinhamos nada nesta conversa. Quando terminarmos um prato, toque em ⭐ Salvar receita! 😉"); return; }
+    setSavingRecipe(true);
+    try{
+      const r = await askAI(`Abaixo está uma conversa de cozinha entre o usuário e o chef. Escreva a receita EXATAMENTE como o usuário fez, incluindo as mudanças e adaptações dele (quantidades, tempos, intensidade do fogo de 1 a 9, temperaturas em °C). Escreva em ${LANG_NAME[lang]||"português do Brasil"}.
+Responda APENAS com JSON:
+{"title":"nome do prato","emoji":"🍝","servings":"4 pessoas","time":"45 min","ingredients":["500 g de ...", "..."],"steps":["passo 1 ...","passo 2 ..."],"adjustments":["o que o usuário mudou ou o que deu certo, ex.: usei 2 dentes de alho a mais","fogo 6 de 9 por 12 min deixou no ponto"],"tips":["dica do chef para a próxima vez"]}
+
+CONVERSA:
+${convo}`,{cache:false},true);
+      if(!r||!r.title) throw {code:"invalid_json"};
+      const rec = {id:Date.now(), title:String(r.title), emoji:String(r.emoji||"🍽️"), servings:String(r.servings||""), time:String(r.time||""),
+        ingredients:(r.ingredients||[]).map(String), steps:(r.steps||[]).map(String), adjustments:(r.adjustments||[]).map(String), tips:(r.tips||[]).map(String),
+        photo:lastPhotoRef.current||null, notes:"", chef, createdAt:Date.now(), cooked:[Date.now()]};
+      const ok = saveRecipes([rec,...loadRecipes()]);
+      addChef(ok?`⭐ Receita salva: ${rec.title}!\n\nEstá na aba ⭐ Receitas, com os seus ajustes${rec.photo?" e a foto do resultado":""}. Quando quiser repetir do seu jeito, é só abrir e tocar em 🔁 Cozinhar de novo.`:"Não consegui salvar: a memória do celular para o app está cheia. Apague alguma receita antiga em ⭐ Receitas.");
+      if(voiceOn&&ok) speak(`Receita salva: ${rec.title}!`);
+    }catch(e){ addChef(AI_ERR(e&&e.code)); }
+    setSavingRecipe(false);
+  };
+  const newChat = ()=>{
+    if(msgs.length>1 && !window.confirm("Começar uma conversa nova? A conversa atual será apagada (receitas salvas continuam em ⭐ Receitas).")) return;
+    setMsgs([{role:"chef",text:L.greeting}]); setHist([]); histRef.current=[]; lastPhotoRef.current=null; setCookMode(false); setPhotoCount(0);
+  };
+  useEffect(()=>{ if(seed&&seed.text){ sendText(seed.text); } },[seed]);
 
   // ─── VOICE (engine lives in App) ───
   useEffect(()=>{
@@ -802,6 +880,14 @@ Analise cor, textura e ponto de cozimento. Responda APENAS com um objeto JSON, s
         )}
       </div>
 
+      {/* ACTIONS */}
+      {msgs.length>1&&(
+        <div style={{display:"flex",gap:8,padding:"8px 16px",borderBottom:`1px solid ${T.border}`,background:"rgba(10,6,0,.85)",position:"relative",zIndex:4}}>
+          <button onClick={saveRecipe} disabled={savingRecipe||busy} style={{flex:1,background:"rgba(255,184,0,.12)",border:`1px solid ${T.gold}55`,borderRadius:12,padding:"8px 10px",color:T.gold,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{savingRecipe?"⏳ Salvando...":"⭐ Salvar receita"}</button>
+          <button onClick={newChat} disabled={busy} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"8px 12px",color:T.cream,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗒️ Nova conversa</button>
+        </div>
+      )}
+
       {/* INGREDIENT PHOTO PREVIEW */}
       {!cookMode&&photoPreview&&(
         <div style={{margin:"12px 16px",background:T.card,border:`1px solid ${T.border}`,borderRadius:14,padding:12,display:"flex",gap:12,alignItems:"center",animation:"slideUp .3s ease"}}>
@@ -835,7 +921,7 @@ Analise cor, textura e ponto de cozimento. Responda APENAS com um objeto JSON, s
                 </div>
               )}
               {m.isCookFeedback?(
-                <CookFeedback score={m.score} comment={m.comment} nextStep={m.nextStep} chefColor={p.color} emoji={p.emoji}/>
+                <CookFeedback score={m.score} comment={m.comment} fix={m.fix} nextStep={m.nextStep} chefColor={p.color} emoji={p.emoji}/>
               ):(
                 m.text&&<div className={`cbbl ${m.role}`} style={{whiteSpace:"pre-wrap"}}>{m.text}</div>
               )}
@@ -1060,6 +1146,11 @@ function Profile({ chef, setChef, lang, setLang, prefs, setPrefs, voice }) {
           {APPLIANCES.map(a=>(<button key={a} onClick={()=>setLocal(p=>({...p,appliance:a}))} style={{padding:"7px 14px",borderRadius:20,border:`1px solid ${local.appliance===a?T.accent:T.border}`,background:local.appliance===a?"rgba(255,107,0,.12)":T.card,color:local.appliance===a?T.accent:T.muted,cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>{a}</button>))}
         </div>
       </div>
+      <div className="card">
+        <div style={{fontSize:12,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:1}}>😋 Meu gosto</div>
+        <div style={{fontSize:12,color:T.textSub,marginBottom:8}}>O chef leva isso em conta em todas as receitas.</div>
+        <textarea className="ci" value={local.taste??DEFAULT_TASTE} onChange={e=>setLocal(p=>({...p,taste:e.target.value}))} style={{width:"100%",minHeight:110,borderRadius:12,resize:"vertical",lineHeight:1.5}}/>
+      </div>
       <button className="bp" onClick={()=>setPrefs(local)}>{L.save}</button>
       <div style={{height:8}}/>
     </div>
@@ -1124,6 +1215,71 @@ function ApiKeyCard(){
   );
 }
 
+// ─── MY RECIPES (favorites, adjustments, history, result photos) ─────────────
+function Recipes({ lang, onCookAgain }){
+  const L = LANGS[lang];
+  const [list, setList] = useState(loadRecipes);
+  const [openId, setOpenId] = useState(null);
+  const [msg, setMsg] = useState("");
+  const photoRef = useRef(null);
+  const update = (id, patch)=>{ const nl=list.map(r=>r.id===id?{...r,...patch}:r); setList(nl); if(!saveRecipes(nl)) setMsg("Memória cheia — a foto não coube. Apague uma receita antiga."); };
+  const remove = (id)=>{ if(!window.confirm("Apagar esta receita?")) return; const nl=list.filter(r=>r.id!==id); setList(nl); saveRecipes(nl); setOpenId(null); };
+  const r = list.find(x=>x.id===openId);
+  const sec = (t)=><div style={{fontSize:12,color:T.muted,margin:"14px 0 8px",textTransform:"uppercase",letterSpacing:1}}>{t}</div>;
+
+  if(r){
+    const addPhoto = async(e)=>{ const f=e.target.files?.[0]; e.target.value=""; if(!f) return; const t=await makeThumb(f,560); if(t) update(r.id,{photo:t}); };
+    return (
+      <div className="screen">
+        <div style={{padding:"16px 16px 0"}}><button onClick={()=>setOpenId(null)} className="bs" style={{width:"auto",margin:0,padding:"8px 14px"}}>← Minhas receitas</button></div>
+        <div className="card" style={{marginTop:12}}>
+          {r.photo?<img src={r.photo} alt="" style={{width:"100%",maxHeight:240,objectFit:"cover",borderRadius:12,marginBottom:12}}/>:<div style={{fontSize:56,textAlign:"center",marginBottom:6}}>{r.emoji}</div>}
+          <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={addPhoto}/>
+          <button className="bs" style={{width:"100%",margin:"0 0 12px"}} onClick={()=>photoRef.current?.click()}>📷 {r.photo?"Trocar foto do resultado":"Adicionar foto do resultado"}</button>
+          <div className="logo" style={{fontSize:22,fontStyle:"normal"}}>{r.emoji} {r.title}</div>
+          <div style={{fontSize:12,color:T.textSub,marginTop:6}}>{[r.servings,r.time].filter(Boolean).join(" · ")}</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:4}}>Salva em {fmtDate(r.createdAt)} · feita {(r.cooked||[]).length}x{(r.cooked||[]).length>1?` · última em ${fmtDate(r.cooked[r.cooked.length-1])}`:""}</div>
+          <button className="bp" style={{width:"100%",margin:"14px 0 0"}} onClick={()=>{ update(r.id,{cooked:[...(r.cooked||[]),Date.now()]}); onCookAgain(r); }}>🔁 Cozinhar de novo do meu jeito</button>
+          {r.adjustments&&r.adjustments.length>0&&<>{sec("✍️ Meus ajustes — o que deu certo")}
+            {r.adjustments.map((a,i)=><div key={i} style={{fontSize:13,color:T.gold,lineHeight:1.5,marginBottom:6}}>• {a}</div>)}</>}
+          {sec("🧺 Ingredientes")}
+          {r.ingredients.map((a,i)=><div key={i} style={{fontSize:14,color:T.cream,lineHeight:1.5,marginBottom:4}}>• {a}</div>)}
+          {sec("👨‍🍳 Modo de preparo")}
+          {r.steps.map((a,i)=><div key={i} style={{display:"flex",gap:10,fontSize:14,color:T.cream,lineHeight:1.5,marginBottom:10}}><span style={{color:T.accent,fontWeight:700,minWidth:18}}>{i+1}.</span><span>{a}</span></div>)}
+          {r.tips&&r.tips.length>0&&<>{sec("💡 Dicas do chef")}{r.tips.map((a,i)=><div key={i} style={{fontSize:13,color:T.textSub,lineHeight:1.5,marginBottom:6}}>• {a}</div>)}</>}
+          {sec("🗒️ Minhas anotações")}
+          <textarea className="ci" defaultValue={r.notes||""} onBlur={e=>update(r.id,{notes:e.target.value})} placeholder="Ex.: da próxima vez, menos sal; meu filho adorou..." style={{width:"100%",minHeight:80,borderRadius:12,resize:"vertical"}}/>
+          {msg&&<div style={{fontSize:12,color:T.gold,marginTop:8}}>{msg}</div>}
+          <button className="bs" style={{width:"100%",margin:"14px 0 0",color:"#E74C3C"}} onClick={()=>remove(r.id)}>🗑 Apagar receita</button>
+        </div>
+        <div style={{height:8}}/>
+      </div>
+    );
+  }
+
+  return (
+    <div className="screen">
+      <div className="hdr"><div className="logo" style={{fontSize:22}}>⭐ {L.recipes||"Receitas"}</div><div className="sub">{list.length} {list.length===1?"receita salva":"receitas salvas"}</div></div>
+      {list.length===0&&(
+        <div className="card" style={{fontSize:14,color:T.cream,lineHeight:1.6}}>
+          Ainda não há receitas salvas.<br/><br/>Cozinhe com o chef e, no final, toque em <b style={{color:T.gold}}>⭐ Salvar receita</b> no chat. Ela fica guardada aqui com os seus ajustes, os tempos que deram certo e a foto do resultado.
+        </div>
+      )}
+      {list.map(x=>(
+        <button key={x.id} onClick={()=>setOpenId(x.id)} className="card" style={{display:"flex",gap:12,alignItems:"center",width:"calc(100% - 32px)",textAlign:"left",cursor:"pointer"}}>
+          {x.photo?<img src={x.photo} alt="" style={{width:64,height:64,borderRadius:12,objectFit:"cover",flexShrink:0}}/>:<div style={{width:64,height:64,borderRadius:12,background:"rgba(255,107,0,.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>{x.emoji}</div>}
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:600,color:T.cream,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{x.title}</div>
+            <div style={{fontSize:12,color:T.textSub,marginTop:3}}>{[x.servings,x.time].filter(Boolean).join(" · ")}</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:3}}>{fmtDate(x.createdAt)} · feita {(x.cooked||[]).length}x</div>
+          </div>
+        </button>
+      ))}
+      <div style={{height:8}}/>
+    </div>
+  );
+}
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
 function App() {
   const [screen, setScreen] = useState("home");
@@ -1131,6 +1287,11 @@ function App() {
   const [lang, setLang] = useState(()=>LS.get("echefe_lang")||"pt");
   const [prefs, setPrefs] = useState(()=>{ const d={cuisine:"Brasileira",diet:"Sem restrição",level:"🌱 Iniciante",appliance:"🔥 Fogão a gás"}; try{ return JSON.parse(LS.get("echefe_prefs"))||d; }catch{ return d; } });
   const [voiceCmd, setVoiceCmd] = useState(null);
+  const [seed, setSeed] = useState(null);
+  const cookAgain = (r)=>{
+    const txt = `Quero fazer de novo a minha receita "${r.title}", do meu jeito, com os mesmos ajustes. Guie um passo de cada vez.\n\nRECEITA SALVA:\nRende: ${r.servings} · Tempo: ${r.time}\nIngredientes: ${r.ingredients.join("; ")}\nPreparo: ${r.steps.map((x,i)=>(i+1)+". "+x).join(" ")}\nMeus ajustes: ${(r.adjustments||[]).join("; ")}${r.notes?"\nMinhas anotações: "+r.notes:""}`;
+    setScreen("chat"); setSeed({text:txt,id:Date.now()});
+  };
   useEffect(()=>{ LS.set("echefe_chef",chef); },[chef]);
   useEffect(()=>{ LS.set("echefe_lang",lang); },[lang]);
   useEffect(()=>{ LS.set("echefe_prefs",JSON.stringify(prefs)); },[prefs]);
@@ -1139,6 +1300,7 @@ function App() {
   const nav = [
     {id:"home",label:L.home,icon:IC.home},
     {id:"chat",label:L.chat,icon:IC.chat},
+    {id:"recipes",label:L.recipes||"Receitas",icon:IC.star},
     {id:"week",label:L.week,icon:IC.cal},
     {id:"shop",label:L.shop,icon:IC.shop},
     {id:"profile",label:L.profile,icon:IC.user},
@@ -1149,7 +1311,8 @@ function App() {
       <div className="main">
       <FireBG/>
       {screen==="home"   &&<Home go={setScreen} chef={chef} lang={lang}/>}
-      <div style={{display:screen==="chat"?"block":"none"}}><Chat key={chef+lang} chef={chef} lang={lang} prefs={prefs} voice={voice} voiceCmd={voiceCmd}/></div>
+      <div style={{display:screen==="chat"?"block":"none"}}><Chat key={chef+lang} chef={chef} lang={lang} prefs={prefs} voice={voice} voiceCmd={voiceCmd} seed={seed} go={setScreen}/></div>
+      {screen==="recipes"&&<Recipes lang={lang} onCookAgain={cookAgain}/>}
       {screen==="week"   &&<Week lang={lang} prefs={prefs}/>}
       {screen==="shop"   &&<Shop lang={lang} prefs={prefs}/>}
       {screen==="profile"&&<Profile chef={chef} setChef={setChef} lang={lang} setLang={setLang} prefs={prefs} setPrefs={setPrefs} voice={voice}/>}
