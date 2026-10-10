@@ -417,56 +417,111 @@ async function speakAI(text, chef, lang){
 }
 
 // ─── VOICE ENGINE: always listening for "Ei Chef" ─────────────────────────────
+// Modes: idle (waiting for the wake word) → capture (collecting the whole question
+// until the person pauses) → speaking (chef talks; only "para"/"Ei Chef" interrupt).
 const WAKE_RE = /\b(ei|ey|hey|hei|oi|e aí|aí|ai|ê|é)[\s,!.]*(chef|chefe|chefs|xefe|chefi|shef|shefe)\b[\s,!.:?]*/i;
+const STOP_RE = /^(para|pare|parar|chega|silêncio|silencio|stop|espera|espere|já chega|ok para|tá bom|ta bom|obrigado|obrigada|halt|stopp|basta|arrête|arrete|dur)[\s!.,]*$/i;
+const SILENCE_MS = 1700;      // pause that ends the question
+const FIRST_WORD_MS = 9000;   // how long to wait for the question to start
+
+let _actx=null;
+const beep = (freq=880, ms=120)=>{
+  try{
+    if(!_actx) _actx = new (window.AudioContext||window.webkitAudioContext)();
+    if(_actx.state==="suspended") _actx.resume();
+    const o=_actx.createOscillator(), g=_actx.createGain();
+    o.frequency.value=freq; o.type="sine";
+    g.gain.setValueAtTime(0.0001,_actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.25,_actx.currentTime+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,_actx.currentTime+ms/1000);
+    o.connect(g); g.connect(_actx.destination); o.start(); o.stop(_actx.currentTime+ms/1000+0.05);
+  }catch{}
+};
+const stripWake = (t)=>{ const m=t.match(WAKE_RE); return m? t.slice(m.index+m[0].length) : t; };
 
 function useVoiceEngine(lang, onCommand, chef){
   const SR = typeof window!=="undefined" && (window.SpeechRecognition||window.webkitSpeechRecognition);
   const [state, setState] = useState(SR?"starting":"unsupported"); // starting|listening|need_tap|blocked|unsupported|off
-  const [awaiting, setAwaiting] = useState(false);
+  const [mode, setModeS] = useState("idle"); // idle|capture|speaking
   const [heard, setHeard] = useState("");
-  const wantOn = useRef(true), speaking = useRef(false), recog = useRef(null);
-  const awaitUntil = useRef(0), wakeLock = useRef(null), cmdRef = useRef(onCommand), langRef = useRef(lang), chefRef = useRef(chef);
+  const wantOn = useRef(true), recog = useRef(null), modeRef = useRef("idle");
+  const wakeLock = useRef(null), cmdRef = useRef(onCommand), langRef = useRef(lang), chefRef = useRef(chef);
   const restartTimer = useRef(null), startedOk = useRef(false), needTap = useRef(false), firstLang = useRef(true);
+  const buf = useRef(""), interimRef = useRef(""), silenceT = useRef(null), firstT = useRef(null), speakDone = useRef(null);
   cmdRef.current = onCommand; langRef.current = lang; chefRef.current = chef;
 
-  const setAwait = (ms)=>{ awaitUntil.current = ms?Date.now()+ms:0; setAwaiting(!!ms); };
+  const setMode = (m)=>{ modeRef.current=m; setModeS(m); };
 
   const lockScreen = async()=>{
     try{ if(navigator.wakeLock&&!wakeLock.current){ wakeLock.current = await navigator.wakeLock.request("screen"); wakeLock.current.addEventListener("release",()=>{wakeLock.current=null;}); } }catch{}
   };
 
-  const handleFinal = (said)=>{
-    said = said.trim(); if(!said) return;
-    const m = said.match(WAKE_RE);
-    if(m){
-      const rest = said.slice(m.index+m[0].length).trim();
-      if(rest.length>2){ setAwait(0); cmdRef.current(rest); }
-      else { setAwait(7000); cmdRef.current(null); }
+  // ── capture: collect the whole question ──
+  const finishCapture = ()=>{
+    clearTimeout(silenceT.current); clearTimeout(firstT.current);
+    const text = (buf.current+" "+stripWake(interimRef.current)).replace(/\s+/g," ").trim();
+    buf.current=""; interimRef.current=""; setHeard("");
+    setMode("idle");
+    if(text.length>1) cmdRef.current(text);
+  };
+  const startCapture = (initial, withBeep)=>{
+    clearTimeout(silenceT.current); clearTimeout(firstT.current);
+    buf.current = (initial||"").trim(); interimRef.current="";
+    setMode("capture");
+    if(withBeep) beep(880,110);
+    if(buf.current) silenceT.current = setTimeout(finishCapture, SILENCE_MS);
+    firstT.current = setTimeout(()=>{ if(modeRef.current==="capture" && !buf.current && !interimRef.current){ setMode("idle"); setHeard(""); } }, FIRST_WORD_MS);
+  };
+  const bumpSilence = ()=>{ clearTimeout(silenceT.current); silenceT.current = setTimeout(finishCapture, SILENCE_MS); };
+
+  // ── speaking ──
+  const stopSpeaking = ()=>{
+    try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch{}
+    try{ const a=audioEl(); a.pause(); a.currentTime=0; }catch{}
+    const d=speakDone.current; speakDone.current=null; if(d) d(true);
+  };
+
+  const onSpeech = (finalText, interimText)=>{
+    const all = (finalText+" "+interimText).trim();
+    const m = modeRef.current;
+    if(m==="speaking"){
+      // ignore the chef's own voice; obey only short stop words or the wake word
+      const last = (finalText||interimText).trim();
+      if(STOP_RE.test(last) || (last.split(/\s+/).length<=3 && /^(para|pare|chega|stop)\b/i.test(last))){ stopSpeaking(); setMode("idle"); beep(520,90); return; }
+      if(WAKE_RE.test(all)){ stopSpeaking(); startCapture(stripWake(finalText), true); return; }
       return;
     }
-    if(Date.now()<awaitUntil.current){ setAwait(0); cmdRef.current(said); }
+    if(m==="idle"){
+      if(!WAKE_RE.test(all)) { setHeard(""); return; }
+      startCapture(finalText?stripWake(finalText):"", true);
+      if(!finalText){ interimRef.current = interimText; setHeard(stripWake(interimText)); bumpSilence(); }
+      return;
+    }
+    // capture
+    if(finalText){ buf.current = (buf.current+" "+stripWake(finalText)).trim(); interimRef.current=""; }
+    else interimRef.current = interimText;
+    setHeard((buf.current+" "+stripWake(interimRef.current)).trim());
+    if(all) bumpSilence();
   };
 
   const start = ()=>{
     if(!SR) { setState("unsupported"); return; }
-    if(speaking.current || recog.current) return;
+    if(recog.current) return;
     clearTimeout(restartTimer.current);
     const r = new SR();
     r.lang = VOICE_LANG[langRef.current]||"pt-BR";
     r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
     r.onstart = ()=>{ startedOk.current=true; setState("listening"); lockScreen(); };
     r.onresult = (ev)=>{
-      let interim="";
+      let fin="", interim="";
       for(let i=ev.resultIndex;i<ev.results.length;i++){
         const res = ev.results[i];
-        if(res.isFinal){ setHeard(""); handleFinal(res[0].transcript); }
-        else interim += res[0].transcript;
+        if(res.isFinal) fin += " "+res[0].transcript; else interim += " "+res[0].transcript;
       }
-      if(interim) setHeard(interim);
+      onSpeech(fin.trim(), interim.trim());
     };
     r.onerror = (ev)=>{
       if(ev.error==="not-allowed"||ev.error==="service-not-allowed"){
-        // Chrome blocks auto-start without a tap on some phones: ask for one tap.
         wantOn.current = false;
         needTap.current = !startedOk.current;
         setState(needTap.current?"need_tap":"blocked");
@@ -474,8 +529,10 @@ function useVoiceEngine(lang, onCommand, chef){
     };
     r.onend = ()=>{
       recog.current = null;
-      if(wantOn.current && !speaking.current && document.visibilityState==="visible"){
-        restartTimer.current = setTimeout(start, 250);
+      // keep any half-heard words of the question; the next session continues it
+      if(modeRef.current==="capture" && interimRef.current){ buf.current=(buf.current+" "+stripWake(interimRef.current)).trim(); interimRef.current=""; }
+      if(wantOn.current && document.visibilityState==="visible"){
+        restartTimer.current = setTimeout(start, 150);
       } else if(!wantOn.current) setState(s=>s==="blocked"||s==="need_tap"?s:"off");
     };
     try{ r.start(); recog.current = r; }
@@ -485,7 +542,7 @@ function useVoiceEngine(lang, onCommand, chef){
   const stopRecog = ()=>{ clearTimeout(restartTimer.current); try{ recog.current&&recog.current.abort(); }catch{} recog.current=null; };
 
   const enable = ()=>{ needTap.current=false; wantOn.current=true; setState("starting"); stopRecog(); start(); };
-  const disable = ()=>{ wantOn.current=false; stopRecog(); setAwait(0); setState("off"); try{wakeLock.current&&wakeLock.current.release();}catch{} };
+  const disable = ()=>{ wantOn.current=false; stopRecog(); stopSpeaking(); setMode("idle"); setState("off"); try{wakeLock.current&&wakeLock.current.release();}catch{} };
 
   const pickVoice = (lc)=>{
     try{ const vs = window.speechSynthesis.getVoices(); return vs.find(v=>v.lang===lc) || vs.find(v=>v.lang&&v.lang.slice(0,2)===lc.slice(0,2)) || null; }catch{ return null; }
@@ -498,34 +555,45 @@ function useVoiceEngine(lang, onCommand, chef){
     const lc = VOICE_LANG[langRef.current]||"pt-BR";
     u.lang = lc; const v = pickVoice(lc); if(v) u.voice = v;
     u.rate = 1.03;
-    u.onend = after; u.onerror = after;
+    u.onend = ()=>after(); u.onerror = ()=>after();
     window.speechSynthesis.speak(u);
   };
 
+  // speak a reply; afterwards listen for a follow-up without the wake word
   const speak = (text, thenListen)=>{
     const clean = String(text).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}*#_`>|]/gu,"").replace(/\s+/g," ").trim().slice(0,1500);
-    if(!clean){ if(thenListen) setAwait(7000); return; }
-    speaking.current = true; stopRecog();
-    try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch{}
-    try{ audioEl().pause(); }catch{}
+    stopSpeaking();
+    if(!clean){ if(thenListen && wantOn.current) startCapture("",true); return; }
+    clearTimeout(silenceT.current); clearTimeout(firstT.current);
+    setMode("speaking");
     let done=false;
-    const after = ()=>{ if(done) return; done=true; speaking.current=false; if(thenListen) setAwait(7000); if(wantOn.current) start(); };
-    speakAI(clean, chefRef.current, langRef.current).then(ok=>{ if(!ok) speakDevice(clean, after); else { const a=audioEl(); a.onended=after; a.onerror=after; } });
+    const after = (interrupted)=>{ if(done) return; done=true; speakDone.current=null;
+      if(modeRef.current!=="speaking") return;      // already moved on (barge-in)
+      setMode("idle");
+      if(!interrupted && thenListen && wantOn.current) startCapture("",true);
+    };
+    speakDone.current = after;
+    speakAI(clean, chefRef.current, langRef.current).then(ok=>{
+      if(done) { try{audioEl().pause();}catch{} return; }
+      if(!ok) speakDevice(clean, ()=>after(false));
+      else { const a=audioEl(); a.onended=()=>after(false); a.onerror=()=>after(false); }
+    });
+    if(!recog.current && wantOn.current) start();
   };
 
-  // talk-now button: skip the wake word once
+  // tap-to-talk: skip the wake word once
   const askNow = ()=>{
-    if(state==="need_tap"||state==="blocked"||state==="off"){ enable(); setAwait(12000); return; }
-    setAwait(12000);
+    if(modeRef.current==="speaking"){ stopSpeaking(); setMode("idle"); return; }
+    if(state==="need_tap"||state==="blocked"||state==="off") enable();
+    startCapture("",true);
   };
 
   useEffect(()=>{
     if(!SR) return;
     start();
-    const vis = ()=>{ if(document.visibilityState==="visible"&&wantOn.current){ lockScreen(); if(!recog.current&&!speaking.current) start(); } };
+    const vis = ()=>{ if(document.visibilityState==="visible"&&wantOn.current){ lockScreen(); if(!recog.current) start(); } };
     document.addEventListener("visibilitychange",vis);
-    // a first tap anywhere unlocks auto-start on phones that require it
-    const firstTap = ()=>{ unlockAudio(); if(needTap.current){ needTap.current=false; wantOn.current=true; setState("starting"); start(); } };
+    const firstTap = ()=>{ unlockAudio(); try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); _actx.resume(); }catch{} if(needTap.current){ needTap.current=false; wantOn.current=true; setState("starting"); start(); } };
     document.addEventListener("pointerdown",firstTap);
     try{ window.speechSynthesis&&window.speechSynthesis.getVoices(); }catch{}
     return ()=>{ document.removeEventListener("visibilitychange",vis); document.removeEventListener("pointerdown",firstTap); stopRecog(); };
@@ -533,7 +601,7 @@ function useVoiceEngine(lang, onCommand, chef){
 
   useEffect(()=>{ if(firstLang.current){ firstLang.current=false; return; } if(recog.current){ stopRecog(); if(wantOn.current) start(); } },[lang]);
 
-  return {state, awaiting, heard, speak, enable, disable, askNow, supported:!!SR};
+  return {state, mode, awaiting:mode==="capture", speaking:mode==="speaking", heard, speak, stopSpeaking:()=>{stopSpeaking(); setMode("idle");}, enable, disable, askNow, supported:!!SR};
 }
 
 function VoiceBar({ v, chefName }){
@@ -542,15 +610,17 @@ function VoiceBar({ v, chefName }){
   else if(v.state==="need_tap"){ label="🎙️ Toque aqui para ligar o “Ei Chef”"; color="#fff"; bg="#FF6B00"; pulse=true; }
   else if(v.state==="blocked"){ label="🎙️ Microfone bloqueado — toque no 🔒 da barra do Chrome → Permissões → Microfone"; color="#FFB800"; }
   else if(v.state==="off"){ label="🔇 “Ei Chef” desligado — toque para ligar"; }
-  else if(v.awaiting){ label = v.heard?`🗣️ ${v.heard}`:`👂 ${chefName} está ouvindo… fale agora`; color="#fff"; bg="#27AE60"; pulse=true; }
-  else if(v.state==="listening"){ label = v.heard?`🗣️ ${v.heard}`:"🎙️ Diga “Ei Chef…” a qualquer momento"; color="#FFF5E0"; }
+  else if(v.speaking){ label=`⏹  ${chefName} falando — toque aqui ou diga “para”`; color="#fff"; bg="#C0392B"; }
+  else if(v.awaiting){ label = v.heard?`🗣️ ${v.heard}`:`👂 ${chefName} está ouvindo… pode falar`; color="#fff"; bg="#27AE60"; pulse=true; }
+  else if(v.state==="listening"){ label = "🎙️ Diga “Ei Chef…” a qualquer momento"; color="#FFF5E0"; }
   else { label="🎙️ Ligando o microfone…"; }
   const tap = ()=>{
+    if(v.speaking){ v.stopSpeaking(); return; }
     if(v.state==="need_tap"||v.state==="off"||v.state==="blocked") v.enable();
     else if(v.state==="listening") v.askNow();
   };
   return (
-    <button onClick={tap} style={{flexShrink:0,width:"100%",border:"none",borderBottom:"1px solid #3D2800",background:bg,color,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,padding:"8px 14px",paddingTop:"calc(8px + env(safe-area-inset-top))",textAlign:"center",cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",zIndex:120,animation:pulse?"cookPulse 1.4s infinite":"none"}}>
+    <button onClick={tap} style={{flexShrink:0,width:"100%",border:"none",borderBottom:"1px solid #3D2800",background:bg,color,fontFamily:"'DM Sans',sans-serif",fontSize:v.speaking?14:12,fontWeight:700,padding:v.speaking?"12px 14px":"8px 14px",paddingTop:`calc(${v.speaking?12:8}px + env(safe-area-inset-top))`,textAlign:"center",cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",zIndex:120,animation:pulse?"cookPulse 1.4s infinite":"none"}}>
       {label}
     </button>
   );
@@ -650,7 +720,8 @@ Analise cor, textura e ponto de cozimento. Responda APENAS com um objeto JSON, s
     if(typeof override!=="string") setInput("");
     busyRef.current=true; setBusy(true);
     setMsgs(m=>[...m,{role:"user",text:viaVoice?`🎙️ ${msg}`:msg}]);
-    const turns=[rulesTurn(),...recentHist(),{role:"user",content:msg}];
+    const VOICE_RULE = "\n\n(Esta pergunta foi FALADA na cozinha e a resposta será lida em voz alta. Responda como numa conversa: no máximo 2 ou 3 frases curtas, sem listas. Se for uma receita, diga só o primeiro passo e pergunte se pode continuar. Se a fala parecer cortada ou sem sentido, peça para repetir.)";
+    const turns=[rulesTurn(),...recentHist(),{role:"user",content:viaVoice?msg+VOICE_RULE:msg}];
     let started=false;
     try{
       const {text} = await askAI(turns,{cache:false,onText:({text})=>{
@@ -670,7 +741,7 @@ Analise cor, textura e ponto de cozimento. Responda APENAS com um objeto JSON, s
   // ─── VOICE (engine lives in App) ───
   useEffect(()=>{
     if(!voiceCmd) return;
-    if(voiceCmd.text===null){ const hi="Estou aqui! Pode falar."; addChef(`${p.emoji} ${hi}`); speak(hi,true); return; }
+    if(!voiceCmd.text) return;
     if(busyRef.current){ speak("Um momento, ainda estou pensando!"); return; }
     sendText(voiceCmd.text,true);
   },[voiceCmd]);
