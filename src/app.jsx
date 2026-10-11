@@ -588,6 +588,9 @@ function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServin
 const WAKE_RE = /\b(ei|ey|hey|hei|oi|e aí|aí|ai|ê|é)[\s,!.]*(chef|chefe|chefs|xefe|chefi|shef|shefe)\b[\s,!.:?]*/i;
 const STOP_RE = /^(para|pare|parar|chega|silêncio|silencio|stop|espera|espere|já chega|ok para|tá bom|ta bom|obrigado|obrigada|halt|stopp|basta|arrête|arrete|dur)[\s!.,]*$/i;
 const SILENCE_MS = 2600;      // pause that ends the question
+// On Android the microphone steals the audio focus every time it restarts → the chef's voice gets choppy.
+// There we pause listening while the chef talks (tap the red bar to interrupt).
+const MIC_PAUSES_WHILE_TALKING = /Android/i.test(navigator.userAgent||"");
 const FIRST_WORD_MS = 9000;   // how long to wait for the question to start
 
 let _actx=null;
@@ -667,6 +670,7 @@ function useVoiceEngine(lang, onCommand, chef){
     try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch{}
     try{ const a=audioEl(); a.pause(); a.currentTime=0; }catch{}
     const d=speakDone.current; speakDone.current=null; if(d) d(true);
+    if(MIC_PAUSES_WHILE_TALKING && wantOn.current && !recog.current) setTimeout(()=>{ if(!recog.current&&wantOn.current&&modeRef.current!=="speaking") start(); },200);
   };
 
   const onSpeech = (finalText, interimText)=>{
@@ -719,7 +723,7 @@ function useVoiceEngine(lang, onCommand, chef){
       recog.current = null;
       // keep any half-heard words of the question; the next session continues it
       if(modeRef.current==="capture" && interimRef.current){ buf.current=mergeSpeech(buf.current, stripWake(interimRef.current)); interimRef.current=""; }
-      if(wantOn.current && document.visibilityState==="visible"){
+      if(wantOn.current && document.visibilityState==="visible" && !(MIC_PAUSES_WHILE_TALKING && modeRef.current==="speaking")){
         restartTimer.current = setTimeout(start, 150);
       } else if(!wantOn.current) setState(s=>s==="blocked"||s==="need_tap"?s:"off");
     };
@@ -758,6 +762,7 @@ function useVoiceEngine(lang, onCommand, chef){
     const after = (interrupted)=>{ if(done) return; done=true; speakDone.current=null;
       if(modeRef.current!=="speaking") return;      // already moved on (barge-in)
       setMode("idle");
+      if(MIC_PAUSES_WHILE_TALKING && wantOn.current && !recog.current) start();
       if(!interrupted && thenListen && wantOn.current) startCapture("",true);
     };
     speakDone.current = after;
@@ -766,7 +771,8 @@ function useVoiceEngine(lang, onCommand, chef){
       if(!ok) speakDevice(clean, ()=>after(false));
       else { const a=audioEl(); a.onended=()=>after(false); a.onerror=()=>after(false); }
     });
-    if(!recog.current && wantOn.current) start();
+    if(MIC_PAUSES_WHILE_TALKING) stopRecog();
+    else if(!recog.current && wantOn.current) start();
   };
 
   // tap-to-talk: skip the wake word once
@@ -799,7 +805,7 @@ function VoiceBar({ v, chefName }){
   else if(v.state==="need_tap"){ label="🎙️ Toque aqui para ligar o “Ei Chef”"; color="#fff"; bg="#FF6B00"; pulse=true; }
   else if(v.state==="blocked"){ label="🎙️ Microfone bloqueado — toque no 🔒 da barra do Chrome → Permissões → Microfone"; color="#FFB800"; }
   else if(v.state==="off"){ label="🔇 “Ei Chef” desligado — toque para ligar"; }
-  else if(v.speaking){ label=`⏹  ${chefName} falando — toque aqui ou diga “para”`; color="#fff"; bg="#C0392B"; }
+  else if(v.speaking){ label=MIC_PAUSES_WHILE_TALKING?`⏹  ${chefName} falando — toque aqui para parar`:`⏹  ${chefName} falando — toque aqui ou diga “para”`; color="#fff"; bg="#C0392B"; }
   else if(v.awaiting){ label = v.heard?`🗣️ ${v.heard}`:`👂 ${chefName} está ouvindo… pode falar`; color="#fff"; bg="#27AE60"; pulse=true; }
   else if(v.state==="listening"){ label = "🎙️ Diga “Ei Chef…” a qualquer momento"; color="#FFF5E0"; }
   else { label="🎙️ Ligando o microfone…"; }
