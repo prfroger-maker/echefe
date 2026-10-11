@@ -393,6 +393,7 @@ async function askAI(input, opts, asJson){
   const text = (r.data.content||[]).map(b=>b.text||"").join("").trim();
   if(!text) throw {code:"empty"};
   if(!asJson){ opts.onText&&opts.onText({text,delta:text}); return {text,truncated:r.data.stop_reason==="max_tokens"}; }
+  if(r.data.stop_reason==="max_tokens") throw {code:"invalid_json"};
   const clean = text.replace(/```json|```/g,"");
   const a = Math.min(...["{","["].map(c=>{const i=clean.indexOf(c);return i<0?1e9:i;}));
   const b = Math.max(clean.lastIndexOf("}"),clean.lastIndexOf("]"));
@@ -1030,26 +1031,37 @@ Responda APENAS com um objeto JSON, sem texto extra:
   const lastCardHero = ()=>{ for(let i=msgs.length-1;i>=0;i--){ if(msgs[i].card&&msgs[i].card.hero) return msgs[i].card.hero; } return null; };
 
   // ─── SAVE RECIPE (favorites with my adjustments) ───
+  const lastCard = ()=>{ for(let i=msgs.length-1;i>=0;i--){ if(msgs[i].card) return msgs[i].card; } return null; };
   const saveRecipe = async()=>{
     if(savingRecipe||busyRef.current) return;
     const convo = histRef.current.map(t=>`${t.role==="user"?"Usuário":"Chef"}: ${t.content}`).join("\n").slice(-20000);
-    if(convo.length<40){ addChef("Ainda não cozinhamos nada nesta conversa. Quando terminarmos um prato, toque em ⭐ Salvar receita! 😉"); return; }
+    const card = lastCard();
+    if(convo.length<40 && !card){ addChef("Ainda não cozinhamos nada nesta conversa. Quando terminarmos um prato, toque em ⭐ Salvar receita! 😉"); return; }
     setSavingRecipe(true);
+    const finish = (rec, note)=>{
+      const ok = saveRecipes([rec,...loadRecipes()]);
+      addChef(ok?`⭐ Receita salva: ${rec.title}!\n\nEstá na aba ⭐ Receitas${note||", com os seus ajustes"}${rec.photo?" e a foto":""}. Quando quiser repetir do seu jeito, é só abrir e tocar em 🔁 Cozinhar de novo.`:"Não consegui salvar: a memória do celular para o app está cheia. Apague alguma receita antiga em ⭐ Receitas.");
+      if(voiceOn&&ok) speak(`Receita salva: ${rec.title}!`);
+    };
+    const base = {id:Date.now(), photo:lastPhotoRef.current||lastCardHero()||null, notes:"", chef, createdAt:Date.now(), cooked:[Date.now()]};
     try{
-      const r = await askAI(`Abaixo está uma conversa de cozinha entre o usuário e o chef. Escreva a receita EXATAMENTE como o usuário fez, incluindo as mudanças e adaptações dele (quantidades, tempos, intensidade do fogo de 1 a 9, temperaturas em °C). Escreva em ${LANG_NAME[lang]||"português do Brasil"}.
+      const r = await askAI(`Abaixo está uma conversa de cozinha entre o usuário e o chef. Escreva a receita EXATAMENTE como o usuário fez, incluindo as mudanças e adaptações dele (número de pessoas, quantidades, tempos, intensidade do fogo de 1 a 9, temperaturas em °C). Escreva em ${LANG_NAME[lang]||"português do Brasil"}. Seja objetivo: cada passo em 1-3 frases, no máximo 10 passos.
 Responda APENAS com JSON:
 {"title":"nome do prato","emoji":"🍝","servings":"4 pessoas","time":"45 min","ingredients":["500 g de ...", "..."],"steps":["passo 1 ...","passo 2 ..."],"adjustments":["o que o usuário mudou ou o que deu certo, ex.: usei 2 dentes de alho a mais","fogo 6 de 9 por 12 min deixou no ponto"],"tips":["dica do chef para a próxima vez"]}
 
 CONVERSA:
-${convo}`,{cache:false},true);
-      if(!r||!r.title) throw {code:"invalid_json"};
-      const rec = {id:Date.now(), title:String(r.title), emoji:String(r.emoji||"🍽️"), servings:String(r.servings||""), time:String(r.time||""),
-        ingredients:(r.ingredients||[]).map(String), steps:(r.steps||[]).map(String), adjustments:(r.adjustments||[]).map(String), tips:(r.tips||[]).map(String),
-        photo:lastPhotoRef.current||lastCardHero()||null, notes:"", chef, createdAt:Date.now(), cooked:[Date.now()]};
-      const ok = saveRecipes([rec,...loadRecipes()]);
-      addChef(ok?`⭐ Receita salva: ${rec.title}!\n\nEstá na aba ⭐ Receitas, com os seus ajustes${rec.photo?" e a foto do resultado":""}. Quando quiser repetir do seu jeito, é só abrir e tocar em 🔁 Cozinhar de novo.`:"Não consegui salvar: a memória do celular para o app está cheia. Apague alguma receita antiga em ⭐ Receitas.");
-      if(voiceOn&&ok) speak(`Receita salva: ${rec.title}!`);
-    }catch(e){ addChef(AI_ERR(e&&e.code)); }
+${convo}`,{cache:false,maxTokens:6000},true);
+      if(!r||!r.title||!Array.isArray(r.ingredients)) throw {code:"invalid_json"};
+      finish({...base, title:String(r.title), emoji:String(r.emoji||"🍽️"), servings:String(r.servings||""), time:String(r.time||""),
+        ingredients:r.ingredients.map(String), steps:(r.steps||[]).map(String), adjustments:(r.adjustments||[]).map(String), tips:(r.tips||[]).map(String)});
+    }catch(e){
+      if(card){
+        // the AI summary failed: save straight from the recipe card in the chat
+        finish({...base, title:card.title, emoji:card.emoji, servings:card.servings, time:card.time,
+          ingredients:card.ingredients.map(x=>x.note?`${x.name} (${x.note})`:x.name), steps:card.steps.map(x=>x.title?`${x.title}: ${x.text}`:x.text),
+          adjustments:[], tips:card.tips.map(x=>x.text?`${x.title} ${x.text}`:x.title)}, " (copiada do cartão de receita — os ajustes da conversa não entraram; escreva-os em 🗒️ Minhas anotações)");
+      } else addChef(e&&e.code==="invalid_json"?"Não consegui montar a receita agora. Toque em ⭐ Salvar receita de novo, por favor. 🙏":AI_ERR(e&&e.code));
+    }
     setSavingRecipe(false);
   };
   const newChat = ()=>{
