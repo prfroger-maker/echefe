@@ -632,10 +632,14 @@ const mergeSpeech = (prev, next)=>{
 
 function useVoiceEngine(lang, onCommand, chef){
   const SR = typeof window!=="undefined" && (window.SpeechRecognition||window.webkitSpeechRecognition);
-  const [state, setState] = useState(SR?"starting":"unsupported"); // starting|listening|need_tap|blocked|unsupported|off
+  const [state, setState] = useState(!SR?"unsupported":((LS.get("echefe_listen_mode") || (MIC_PAUSES_WHILE_TALKING?"tap":"always"))==="tap"?"tap":"starting")); // starting|listening|need_tap|blocked|unsupported|off
   const [mode, setModeS] = useState("idle"); // idle|capture|speaking
   const [heard, setHeard] = useState("");
-  const wantOn = useRef(true), recog = useRef(null), modeRef = useRef("idle");
+  // "tap": mic only when the person taps (default on Android — the system beeps every time the mic restarts)
+  // "always": always listening for "Ei Chef"
+  const [listenMode, setListenModeS] = useState(()=>LS.get("echefe_listen_mode") || (MIC_PAUSES_WHILE_TALKING?"tap":"always"));
+  const listenRef = useRef(listenMode);
+  const wantOn = useRef(listenMode==="always"), recog = useRef(null), modeRef = useRef("idle");
   const wakeLock = useRef(null), cmdRef = useRef(onCommand), langRef = useRef(lang), chefRef = useRef(chef);
   const restartTimer = useRef(null), startedOk = useRef(false), needTap = useRef(false), firstLang = useRef(true);
   const buf = useRef(""), interimRef = useRef(""), silenceT = useRef(null), firstT = useRef(null), speakDone = useRef(null);
@@ -647,12 +651,21 @@ function useVoiceEngine(lang, onCommand, chef){
     try{ if(navigator.wakeLock&&!wakeLock.current){ wakeLock.current = await navigator.wakeLock.request("screen"); wakeLock.current.addEventListener("release",()=>{wakeLock.current=null;}); } }catch{}
   };
 
+  // tap mode: switch the mic off when the short listening window is over
+  const endTapSession = ()=>{
+    if(listenRef.current!=="tap") return;
+    wantOn.current=false; clearTimeout(restartTimer.current);
+    try{ recog.current&&recog.current.abort(); }catch{} recog.current=null;
+    setState(s=>s==="blocked"||s==="need_tap"||s==="unsupported"?s:"tap");
+  };
+
   // ── capture: collect the whole question ──
   const finishCapture = ()=>{
     clearTimeout(silenceT.current); clearTimeout(firstT.current);
     const text = mergeSpeech(buf.current, stripWake(interimRef.current)).replace(/\s+/g," ").trim();
     buf.current=""; interimRef.current=""; setHeard("");
     setMode("idle");
+    endTapSession();
     if(text.length>1) cmdRef.current(text);
   };
   const startCapture = (initial, withBeep)=>{
@@ -661,7 +674,7 @@ function useVoiceEngine(lang, onCommand, chef){
     setMode("capture");
     if(withBeep) beep(880,110);
     if(buf.current) silenceT.current = setTimeout(finishCapture, SILENCE_MS);
-    firstT.current = setTimeout(()=>{ if(modeRef.current==="capture" && !buf.current && !interimRef.current){ setMode("idle"); setHeard(""); } }, FIRST_WORD_MS);
+    firstT.current = setTimeout(()=>{ if(modeRef.current==="capture" && !buf.current && !interimRef.current){ setMode("idle"); setHeard(""); endTapSession(); } }, FIRST_WORD_MS);
   };
   const bumpSilence = ()=>{ clearTimeout(silenceT.current); silenceT.current = setTimeout(finishCapture, SILENCE_MS); };
 
@@ -725,7 +738,7 @@ function useVoiceEngine(lang, onCommand, chef){
       if(modeRef.current==="capture" && interimRef.current){ buf.current=mergeSpeech(buf.current, stripWake(interimRef.current)); interimRef.current=""; }
       if(wantOn.current && document.visibilityState==="visible" && !(MIC_PAUSES_WHILE_TALKING && modeRef.current==="speaking")){
         restartTimer.current = setTimeout(start, 150);
-      } else if(!wantOn.current) setState(s=>s==="blocked"||s==="need_tap"?s:"off");
+      } else if(!wantOn.current) setState(s=>s==="blocked"||s==="need_tap"?s:(listenRef.current==="tap"?"tap":"off"));
     };
     try{ r.start(); recog.current = r; }
     catch{ recog.current=null; wantOn.current=false; needTap.current=true; setState("need_tap"); }
@@ -762,6 +775,11 @@ function useVoiceEngine(lang, onCommand, chef){
     const after = (interrupted)=>{ if(done) return; done=true; speakDone.current=null;
       if(modeRef.current!=="speaking") return;      // already moved on (barge-in)
       setMode("idle");
+      if(listenRef.current==="tap"){
+        if(!interrupted && thenListen){ wantOn.current=true; if(!recog.current) start(); startCapture("",true); }
+        else endTapSession();
+        return;
+      }
       if(MIC_PAUSES_WHILE_TALKING && wantOn.current && !recog.current) start();
       if(!interrupted && thenListen && wantOn.current) startCapture("",true);
     };
@@ -779,16 +797,22 @@ function useVoiceEngine(lang, onCommand, chef){
   const askNow = ()=>{
     if(modeRef.current==="speaking"){ stopSpeaking(); setMode("idle"); return; }
     if(modeRef.current==="capture" && (buf.current||interimRef.current)){ finishCapture(); return; }
+    if(listenRef.current==="tap"){ needTap.current=false; wantOn.current=true; if(!recog.current) start(); startCapture("",true); return; }
     if(state==="need_tap"||state==="blocked"||state==="off") enable();
     startCapture("",true);
+  };
+  const setListenMode = (m)=>{
+    LS.set("echefe_listen_mode", m); listenRef.current=m; setListenModeS(m);
+    if(m==="always"){ enable(); }
+    else { setMode("idle"); clearTimeout(silenceT.current); clearTimeout(firstT.current); endTapSession(); }
   };
 
   useEffect(()=>{
     if(!SR) return;
-    start();
+    if(listenRef.current==="always") start();
     const vis = ()=>{ if(document.visibilityState==="visible"&&wantOn.current){ lockScreen(); if(!recog.current) start(); } };
     document.addEventListener("visibilitychange",vis);
-    const firstTap = ()=>{ unlockAudio(); try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); _actx.resume(); }catch{} if(needTap.current){ needTap.current=false; wantOn.current=true; setState("starting"); start(); } };
+    const firstTap = ()=>{ unlockAudio(); try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); _actx.resume(); }catch{} if(needTap.current && listenRef.current==="always"){ needTap.current=false; wantOn.current=true; setState("starting"); start(); } };
     document.addEventListener("pointerdown",firstTap);
     try{ window.speechSynthesis&&window.speechSynthesis.getVoices(); }catch{}
     return ()=>{ document.removeEventListener("visibilitychange",vis); document.removeEventListener("pointerdown",firstTap); stopRecog(); };
@@ -796,7 +820,7 @@ function useVoiceEngine(lang, onCommand, chef){
 
   useEffect(()=>{ if(firstLang.current){ firstLang.current=false; return; } if(recog.current){ stopRecog(); if(wantOn.current) start(); } },[lang]);
 
-  return {state, mode, awaiting:mode==="capture", speaking:mode==="speaking", heard, speak, stopSpeaking:()=>{stopSpeaking(); setMode("idle");}, enable, disable, askNow, supported:!!SR};
+  return {state, mode, awaiting:mode==="capture", speaking:mode==="speaking", heard, speak, stopSpeaking:()=>{stopSpeaking(); setMode("idle"); endTapSession();}, enable, disable, askNow, listenMode, setListenMode, supported:!!SR};
 }
 
 function VoiceBar({ v, chefName }){
@@ -805,12 +829,14 @@ function VoiceBar({ v, chefName }){
   else if(v.state==="need_tap"){ label="🎙️ Toque aqui para ligar o “Ei Chef”"; color="#fff"; bg="#FF6B00"; pulse=true; }
   else if(v.state==="blocked"){ label="🎙️ Microfone bloqueado — toque no 🔒 da barra do Chrome → Permissões → Microfone"; color="#FFB800"; }
   else if(v.state==="off"){ label="🔇 “Ei Chef” desligado — toque para ligar"; }
+  else if(v.state==="tap" && !v.awaiting && !v.speaking){ label="🎙️ Toque aqui para falar com o chef"; color="#FFF5E0"; }
   else if(v.speaking){ label=MIC_PAUSES_WHILE_TALKING?`⏹  ${chefName} falando — toque aqui para parar`:`⏹  ${chefName} falando — toque aqui ou diga “para”`; color="#fff"; bg="#C0392B"; }
   else if(v.awaiting){ label = v.heard?`🗣️ ${v.heard}`:`👂 ${chefName} está ouvindo… pode falar`; color="#fff"; bg="#27AE60"; pulse=true; }
   else if(v.state==="listening"){ label = "🎙️ Diga “Ei Chef…” a qualquer momento"; color="#FFF5E0"; }
   else { label="🎙️ Ligando o microfone…"; }
   const tap = ()=>{
     if(v.speaking){ v.stopSpeaking(); return; }
+    if(v.listenMode==="tap"||v.state==="tap") { v.askNow(); return; }
     if(v.state==="need_tap"||v.state==="off"||v.state==="blocked") v.enable();
     else if(v.state==="listening") v.askNow();
   };
@@ -1271,16 +1297,22 @@ function Profile({ chef, setChef, lang, setLang, prefs, setPrefs, voice }) {
       <div className="card">
         <div style={{fontSize:12,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:1}}>🎙️ Ei Chef (voz)</div>
         <div style={{fontSize:13,color:T.cream,lineHeight:1.5,marginBottom:10}}>
-          {voice.state==="listening"?"Ligado: o microfone fica ouvindo enquanto o app está aberto. Diga “Ei Chef” e a pergunta."
+          {voice.listenMode==="tap"&&voice.supported?"Toque no 🎙️ (ou na faixa do topo), espere o bip e fale. Depois da resposta do chef, ele escuta mais uma vez para você continuar."
+           :voice.state==="listening"?"Ligado: o microfone fica ouvindo enquanto o app está aberto. Diga “Ei Chef” e a pergunta."
            :voice.state==="unsupported"?"Este navegador não tem reconhecimento de voz. Abra o eChefe no Google Chrome."
            :voice.state==="starting"?"Ligando o microfone… (se o Chrome perguntar, toque em Permitir)."
            :voice.state==="need_tap"?"Toque em “Ligar” para o Chrome pedir o microfone."
            :voice.state==="blocked"?"Microfone bloqueado. No Chrome: toque no 🔒 ao lado do endereço → Permissões → Microfone → Permitir."
            :"Desligado."}
         </div>
-        {voice.supported&&(voice.state==="listening"
-          ?<button className="bs" style={{width:"100%",margin:0}} onClick={voice.disable}>🔇 Desligar “Ei Chef”</button>
-          :<button className="bs" style={{width:"100%",margin:0,borderColor:T.accent}} onClick={voice.enable}>🎙️ Ligar “Ei Chef”</button>)}
+        {voice.supported&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {[["tap","👆 Toque para falar","O microfone só liga quando você toca no 🎙️ ou na faixa do topo. Sem bips à toa. Recomendado no Android."],
+            ["always","👂 Sempre ouvindo “Ei Chef”","Fica ouvindo o tempo todo. No Android o celular apita toda vez que o microfone reinicia."]].map(([k,t,d])=>(
+            <button key={k} onClick={()=>voice.setListenMode(k)} style={{textAlign:"left",background:voice.listenMode===k?"rgba(255,107,0,.12)":T.card,border:`1px solid ${voice.listenMode===k?T.accent:T.border}`,borderRadius:12,padding:"10px 12px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+              <div style={{fontSize:14,fontWeight:700,color:voice.listenMode===k?T.accent:T.cream}}>{voice.listenMode===k?"● ":"○ "}{t}</div>
+              <div style={{fontSize:12,color:T.muted,marginTop:3,lineHeight:1.4}}>{d}</div>
+            </button>))}
+        </div>}
         <button className="bs" style={{width:"100%",margin:"8px 0 0"}} onClick={()=>voice.speak("Olá! Eu sou o seu chef. Vamos cozinhar?")}>🔊 Testar voz do chef</button>
       </div>
       <div className="card">
