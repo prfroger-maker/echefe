@@ -460,7 +460,7 @@ async function speakAI(text, chef, lang){
 // ─── RECIPE CARD (interactive: ingredient checklist, steps with photos) ──────
 const CARD_RULE = `FORMATO DE RECEITA: quando o usuário pedir uma receita ou disser que quer fazer um prato (e você ainda não mandou o cartão desse prato nesta conversa), responda com um CARTÃO DE RECEITA completo, como visão geral, dentro das tags <recipe> e </recipe>, contendo APENAS JSON válido neste formato:
 <recipe>{"title":"Macarrão cremoso com camarão","emoji":"🍤","intro":"1-2 frases animadas apresentando o prato","servings":"4 pessoas","time":"35-40 min","tags":["Cremosidade intensa"],"ingredients":[{"name":"500 g de macarrão","note":"tagliatelle ou fettuccine"}],"steps":[{"title":"Tempere os camarões","text":"instrução clara com fogo de 1 a 9, tempo e °C quando fizer sentido","img":"short English description of a realistic food photo for this step"}],"tips":[{"title":"A água do macarrão é indispensável","text":"por quê, em 1-2 frases"}],"question":"pergunta final ao usuário (ex.: se tem os ingredientes, quantas pessoas, tipo de macarrão)"}</recipe>
-Regras do cartão: 4 a 8 passos; ingredientes com quantidades; adapte à dieta, ao equipamento e ao gosto do usuário; use nomes de ingredientes do país do usuário quando souber. Depois que o cartão foi enviado e o usuário começar a cozinhar, NÃO mande outro cartão: guie uma ou duas etapas por vez, em texto normal. Para conversas que não são pedido de receita, responda em texto normal, sem tags.`;
+Regras do cartão: 4 a 8 passos; ingredientes com quantidades; adapte à dieta, ao equipamento e ao gosto do usuário; use nomes de ingredientes do país do usuário quando souber. MANDE UM NOVO CARTÃO COMPLETO (com tudo recalculado e a lista de ingredientes nova) sempre que o usuário: informar um número de pessoas diferente do cartão, pedir para ajustar quantidades, trocar ingredientes ou mudar a receita (ex.: deixar mais cremoso), ou pedir para repassar/mostrar a receita de novo. Escreva no "intro" o que mudou. Durante o preparo (depois que ele começou a cozinhar), guie uma ou duas etapas por vez, em texto normal. Para conversas que não são pedido de receita, responda em texto normal, sem tags.`;
 
 const parseCard = (text)=>{
   const m = String(text).match(/<recipe>([\s\S]*?)<\/recipe>/i);
@@ -516,7 +516,7 @@ async function genImage(desc){
   return null;
 }
 
-function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, hasImgKey }){
+function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServings, hasImgKey }){
   const total = card.ingredients.length, have = card.have.length;
   const ph = (src, emoji, h)=> src
     ? <img src={src} alt="" style={{width:"100%",height:h,objectFit:"cover",borderRadius:12,display:"block"}}/>
@@ -532,6 +532,11 @@ function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, hasImgKe
           {card.servings&&<span className="rtag" style={{fontSize:12}}>👥 {card.servings}</span>}
           {card.time&&<span className="rtag" style={{fontSize:12}}>⏱ {card.time}</span>}
           {card.tags.map((t,i)=><span key={i} className="rtag" style={{fontSize:12,background:"rgba(255,184,0,.1)",color:T.gold}}>{t}</span>)}
+        </div>
+
+        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:12,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,color:T.muted}}>👥 Ajustar para:</span>
+          {[2,4,6,8,10].map(n=><button key={n} onClick={()=>onServings(n)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 11px",color:T.cream,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{n}</button>)}
         </div>
 
         {/* INGREDIENTS CHECKLIST */}
@@ -582,7 +587,7 @@ function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, hasImgKe
 // until the person pauses) → speaking (chef talks; only "para"/"Ei Chef" interrupt).
 const WAKE_RE = /\b(ei|ey|hey|hei|oi|e aí|aí|ai|ê|é)[\s,!.]*(chef|chefe|chefs|xefe|chefi|shef|shefe)\b[\s,!.:?]*/i;
 const STOP_RE = /^(para|pare|parar|chega|silêncio|silencio|stop|espera|espere|já chega|ok para|tá bom|ta bom|obrigado|obrigada|halt|stopp|basta|arrête|arrete|dur)[\s!.,]*$/i;
-const SILENCE_MS = 1700;      // pause that ends the question
+const SILENCE_MS = 2600;      // pause that ends the question
 const FIRST_WORD_MS = 9000;   // how long to wait for the question to start
 
 let _actx=null;
@@ -599,6 +604,28 @@ const beep = (freq=880, ms=120)=>{
   }catch{}
 };
 const stripWake = (t)=>{ const m=t.match(WAKE_RE); return m? t.slice(m.index+m[0].length) : t; };
+// Joins speech chunks without repeating words. Android sends "seria", "seria uma", "seria uma boa"...
+const normOne = (w)=>w.toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
+const normW = (t)=>t.split(/\s+/).filter(Boolean).map(normOne);
+const mergeSpeech = (prev, next)=>{
+  prev=(prev||"").trim(); next=(next||"").trim();
+  if(!prev) return next; if(!next) return prev;
+  const pw=prev.split(/\s+/), nw=next.split(/\s+/);
+  const P=pw.map(normOne), N=nw.map(normOne), ps=P.join(" "), ns=N.join(" ");
+  if(!ns.trim()) return prev;
+  if(ns.startsWith(ps)) return next;                                   // next extends everything said so far
+  if(ps.endsWith(ns) || (" "+ps+" ").includes(" "+ns+" ")) return prev; // already have it
+  // the phone re-sent the current phrase with a corrected word ("…boa como" → "…boa com molho")
+  for(let i=0;i<P.length;i++){
+    if(P[i]!==N[0]) continue;
+    let c=0; while(i+c<P.length && c<N.length && P[i+c]===N[c]) c++;
+    if(c>=2 && c>=(P.length-i)*0.5) return [...pw.slice(0,i),...nw].join(" ");
+  }
+  for(let k=Math.min(P.length,N.length);k>0;k--){                      // overlap: end of prev == start of next
+    if(P.slice(P.length-k).join(" ")===N.slice(0,k).join(" ")) return [...pw,...nw.slice(k)].join(" ");
+  }
+  return prev+" "+next;
+};
 
 function useVoiceEngine(lang, onCommand, chef){
   const SR = typeof window!=="undefined" && (window.SpeechRecognition||window.webkitSpeechRecognition);
@@ -620,7 +647,7 @@ function useVoiceEngine(lang, onCommand, chef){
   // ── capture: collect the whole question ──
   const finishCapture = ()=>{
     clearTimeout(silenceT.current); clearTimeout(firstT.current);
-    const text = (buf.current+" "+stripWake(interimRef.current)).replace(/\s+/g," ").trim();
+    const text = mergeSpeech(buf.current, stripWake(interimRef.current)).replace(/\s+/g," ").trim();
     buf.current=""; interimRef.current=""; setHeard("");
     setMode("idle");
     if(text.length>1) cmdRef.current(text);
@@ -659,9 +686,9 @@ function useVoiceEngine(lang, onCommand, chef){
       return;
     }
     // capture
-    if(finalText){ buf.current = (buf.current+" "+stripWake(finalText)).trim(); interimRef.current=""; }
+    if(finalText){ buf.current = mergeSpeech(buf.current, stripWake(finalText)); interimRef.current=""; }
     else interimRef.current = interimText;
-    setHeard((buf.current+" "+stripWake(interimRef.current)).trim());
+    setHeard(mergeSpeech(buf.current, stripWake(interimRef.current)));
     if(all) bumpSilence();
   };
 
@@ -677,7 +704,7 @@ function useVoiceEngine(lang, onCommand, chef){
       let fin="", interim="";
       for(let i=ev.resultIndex;i<ev.results.length;i++){
         const res = ev.results[i];
-        if(res.isFinal) fin += " "+res[0].transcript; else interim += " "+res[0].transcript;
+        if(res.isFinal) fin = mergeSpeech(fin, res[0].transcript); else interim = mergeSpeech(interim, res[0].transcript);
       }
       onSpeech(fin.trim(), interim.trim());
     };
@@ -691,7 +718,7 @@ function useVoiceEngine(lang, onCommand, chef){
     r.onend = ()=>{
       recog.current = null;
       // keep any half-heard words of the question; the next session continues it
-      if(modeRef.current==="capture" && interimRef.current){ buf.current=(buf.current+" "+stripWake(interimRef.current)).trim(); interimRef.current=""; }
+      if(modeRef.current==="capture" && interimRef.current){ buf.current=mergeSpeech(buf.current, stripWake(interimRef.current)); interimRef.current=""; }
       if(wantOn.current && document.visibilityState==="visible"){
         restartTimer.current = setTimeout(start, 150);
       } else if(!wantOn.current) setState(s=>s==="blocked"||s==="need_tap"?s:"off");
@@ -745,6 +772,7 @@ function useVoiceEngine(lang, onCommand, chef){
   // tap-to-talk: skip the wake word once
   const askNow = ()=>{
     if(modeRef.current==="speaking"){ stopSpeaking(); setMode("idle"); return; }
+    if(modeRef.current==="capture" && (buf.current||interimRef.current)){ finishCapture(); return; }
     if(state==="need_tap"||state==="blocked"||state==="off") enable();
     startCapture("",true);
   };
@@ -780,6 +808,7 @@ function VoiceBar({ v, chefName }){
     if(v.state==="need_tap"||v.state==="off"||v.state==="blocked") v.enable();
     else if(v.state==="listening") v.askNow();
   };
+  if(v.awaiting&&v.heard) label = `🗣️ ${v.heard}   ·  toque para enviar`;
   return (
     <button onClick={tap} style={{flexShrink:0,width:"100%",border:"none",borderBottom:"1px solid #3D2800",background:bg,color,fontFamily:"'DM Sans',sans-serif",fontSize:v.speaking?14:12,fontWeight:700,padding:v.speaking?"12px 14px":"8px 14px",paddingTop:`calc(${v.speaking?12:8}px + env(safe-area-inset-top))`,textAlign:"center",cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",zIndex:120,animation:pulse?"cookPulse 1.4s infinite":"none"}}>
       {label}
@@ -1072,11 +1101,12 @@ ${convo}`,{cache:false},true);
                 <RecipeCard card={m.card} color={p.color} hasImgKey={!!LS.get(OAI_LS)}
                   onToggleHave={(k)=>updateCard(m.card.id,c=>({...c,have:toggleIn(c.have,k)}))}
                   onToggleDone={(k)=>updateCard(m.card.id,c=>({...c,done:toggleIn(c.done,k)}))}
+                  onServings={(n)=>sendText(`Ajuste a receita "${m.card.title}" para ${n} pessoas e me mande o cartão completo de novo, com as quantidades recalculadas.`)}
                   onStart={()=>sendText(`Vamos começar a fazer ${m.card.title}!${m.card.have.length<m.card.ingredients.length?` Dos ingredientes, eu tenho: ${m.card.have.map(k=>m.card.ingredients[k].name).join(", ")||"(ainda não marquei)"}.`:" Tenho todos os ingredientes."} Me guie a partir do passo 1, uma ou duas etapas por vez.`)}/>
               ):m.isCookFeedback?(
                 <CookFeedback score={m.score} comment={m.comment} fix={m.fix} nextStep={m.nextStep} chefColor={p.color} emoji={p.emoji}/>
               ):(
-                m.text&&<div className={`cbbl ${m.role}`} style={{whiteSpace:"pre-wrap"}}>{m.text}</div>
+                m.text&&<div className={`cbbl ${m.role}`} style={{whiteSpace:"pre-wrap"}}>{String(m.text).split(/\*\*(.+?)\*\*/g).map((part,k)=>k%2?<b key={k}>{part}</b>:part)}</div>
               )}
             </div>
           ))}
