@@ -463,7 +463,7 @@ async function speakAI(text, chef, lang){
 // ─── RECIPE CARD (interactive: ingredient checklist, steps with photos) ──────
 const CARD_RULE = `FORMATO DE RECEITA: quando o usuário pedir uma receita ou disser que quer fazer um prato (e você ainda não mandou o cartão desse prato nesta conversa), responda com um CARTÃO DE RECEITA completo, como visão geral, dentro das tags <recipe> e </recipe>, contendo APENAS JSON válido neste formato:
 <recipe>{"title":"Macarrão cremoso com camarão","emoji":"🍤","intro":"1-2 frases animadas apresentando o prato","servings":"4 pessoas","time":"35-40 min","tags":["Cremosidade intensa"],"ingredients":[{"name":"500 g de macarrão","note":"tagliatelle ou fettuccine"}],"steps":[{"title":"Tempere os camarões","text":"instrução clara com fogo de 1 a 9, tempo e °C quando fizer sentido","img":"short English description of a realistic food photo for this step"}],"tips":[{"title":"A água do macarrão é indispensável","text":"por quê, em 1-2 frases"}],"question":"pergunta final ao usuário (ex.: se tem os ingredientes, quantas pessoas, tipo de macarrão)"}</recipe>
-Regras do cartão: 4 a 8 passos; ingredientes com quantidades; adapte à dieta, ao equipamento e ao gosto do usuário; use nomes de ingredientes do país do usuário quando souber. MANDE UM NOVO CARTÃO COMPLETO (com tudo recalculado e a lista de ingredientes nova) sempre que o usuário: informar um número de pessoas diferente do cartão, pedir para ajustar quantidades, trocar ingredientes ou mudar a receita (ex.: deixar mais cremoso), ou pedir para repassar/mostrar a receita de novo. Escreva no "intro" o que mudou. Durante o preparo (depois que ele começou a cozinhar), guie uma ou duas etapas por vez, em texto normal. Para conversas que não são pedido de receita, responda em texto normal, sem tags.`;
+Regras do cartão: 4 a 8 passos; ingredientes com quantidades; adapte à dieta, ao equipamento e ao gosto do usuário; use nomes de ingredientes do país do usuário quando souber. MANDE UM NOVO CARTÃO COMPLETO (com tudo recalculado e a lista de ingredientes nova) sempre que o usuário: informar um número de pessoas diferente do cartão, pedir para ajustar quantidades, trocar ingredientes ou mudar a receita (ex.: deixar mais cremoso), ou pedir para repassar/rever/mostrar de novo a receita OU a lista de ingredientes (ex.: "vamos repassar a lista de ingredientes"). Nesse caso o cartão novo vem com a lista inteira para ele marcar de novo, e o "intro" diz que é a lista repassada. Escreva no "intro" o que mudou. Durante o preparo (depois que ele começou a cozinhar), guie uma ou duas etapas por vez, em texto normal. Para conversas que não são pedido de receita, responda em texto normal, sem tags.`;
 
 const parseCard = (text)=>{
   const m = String(text).match(/<recipe>([\s\S]*?)<\/recipe>/i);
@@ -519,7 +519,7 @@ async function genImage(desc){
   return null;
 }
 
-function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServings, hasImgKey }){
+function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServings, onReview, hasImgKey }){
   const total = card.ingredients.length, have = card.have.length;
   const ph = (src, emoji, h)=> src
     ? <img src={src} alt="" style={{width:"100%",height:h,objectFit:"cover",borderRadius:12,display:"block"}}/>
@@ -557,7 +557,10 @@ function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServin
                 {x.note&&<div style={{fontSize:12,color:T.muted,marginTop:2}}>{x.note}</div>}
               </div>
             </div>);})}
-          <div style={{fontSize:11,color:T.muted,marginTop:6}}>Toque no que você já tem ✓</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,gap:8}}>
+            <div style={{fontSize:11,color:T.muted}}>Toque no que você já tem ✓</div>
+            <button onClick={onReview} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 12px",color:T.cream,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>🔄 Repassar a lista</button>
+          </div>
         </div>
 
         {/* STEPS */}
@@ -904,7 +907,15 @@ function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
     if(saveJSON(CHAT_LS,{msgs:noOld,hist:h})) return;
     saveJSON(CHAT_LS,{msgs:noOld.map(m=>m.card?{...m,card:{...m.card,hero:null,photos:{}}}:{...m,img:null,imgs:undefined}),hist:h});
   },[msgs,hist,busy]);
-  useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,busy]);
+  const lastLen = useRef(0), firstScroll = useRef(true);
+  useEffect(()=>{
+    const grew = msgs.length > lastLen.current; lastLen.current = msgs.length;
+    if(!grew && !busy) return;                       // ticking a box etc. → don't move the screen
+    const behavior = firstScroll.current ? "auto" : "smooth"; firstScroll.current=false;
+    const last = msgs[msgs.length-1];
+    if(grew && last && last.card){ const el=document.getElementById("msg-"+(msgs.length-1)); if(el){ el.scrollIntoView({behavior,block:"start"}); return; } }
+    endRef.current?.scrollIntoView({behavior});
+  },[msgs.length,busy]);
 
   const voiceOn = voice.state==="listening";
   const speak = voice.speak;
@@ -1123,7 +1134,7 @@ ${convo}`,{cache:false},true);
       <div style={{flex:1,overflowY:"auto"}}>
         <div style={{display:"flex",flexDirection:"column",gap:12,padding:16}}>
           {msgs.map((m,i)=>(
-            <div key={i} style={{alignSelf:m.role==="chef"?"flex-start":"flex-end",maxWidth:m.card?"100%":"88%",display:"flex",flexDirection:"column",width:m.card?"100%":m.isCookFeedback?"90%":"auto"}}>
+            <div key={i} id={"msg-"+i} style={{scrollMarginTop:8,alignSelf:m.role==="chef"?"flex-start":"flex-end",maxWidth:m.card?"100%":"88%",display:"flex",flexDirection:"column",width:m.card?"100%":m.isCookFeedback?"90%":"auto"}}>
               {m.role==="chef"&&(
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                   <div style={{width:22,height:22,background:p.bg,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>{p.emoji}</div>
@@ -1145,6 +1156,7 @@ ${convo}`,{cache:false},true);
                 <RecipeCard card={m.card} color={p.color} hasImgKey={!!LS.get(OAI_LS)}
                   onToggleHave={(k)=>updateCard(m.card.id,c=>({...c,have:toggleIn(c.have,k)}))}
                   onToggleDone={(k)=>updateCard(m.card.id,c=>({...c,done:toggleIn(c.done,k)}))}
+                  onReview={()=>sendText(`Chef, vamos repassar a lista de todos os ingredientes de "${m.card.title}" antes de começar. Me mande o cartão completo de novo, com a lista para eu marcar.`)}
                   onServings={(n)=>sendText(`Ajuste a receita "${m.card.title}" para ${n} pessoas e me mande o cartão completo de novo, com as quantidades recalculadas.`)}
                   onStart={()=>sendText(`Vamos começar a fazer ${m.card.title}!${m.card.have.length<m.card.ingredients.length?` Dos ingredientes, eu tenho: ${m.card.have.map(k=>m.card.ingredients[k].name).join(", ")||"(ainda não marquei)"}.`:" Tenho todos os ingredientes."} Me guie a partir do passo 1, uma ou duas etapas por vez.`)}/>
               ):m.isCookFeedback?(
