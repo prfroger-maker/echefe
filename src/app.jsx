@@ -181,7 +181,8 @@ const CHEF_RULES = `COMO VOCÊ TRABALHA — você é o chef particular do usuár
 - AJUSTES: se algo der errado (molho ácido, comida salgada, carne soltando água, fogo forte demais, etc.), ajude a corrigir sem precisar recomeçar.
 - Considere SEMPRE tudo o que já foi para a panela nesta conversa. Nunca peça para adicionar um ingrediente que já foi usado. Se o usuário mudar de ideia, adapte a partir do que já foi feito.
 - Respostas curtas enquanto ele executa uma tarefa; explique com mais detalhes só quando ele pedir.
-- Não invente o que não sabe. Para ponto e segurança de carnes, recomende termômetro culinário e diga a temperatura interna em °C.`;
+- Não invente o que não sabe. Para ponto e segurança de carnes, recomende termômetro culinário e diga a temperatura interna em °C.
+- FOTOS: quando o usuário mandar uma ou mais fotos, analise só o que dá para ver nelas e responda ao comentário dele. Se forem ingredientes, identifique-os e sugira o que fazer (se ele pedir uma receita, mande o cartão de receita). Se for o preparo, avalie douramento, líquido, molho, cor, textura, caramelizado/queimado e diga o que corrigir e o próximo passo. Se forem várias fotos, considere todas juntas.`;
 const DEFAULT_TASTE = "Gosto de comida muito saborosa, bem temperada, com equilíbrio entre os ingredientes e aparência bonita. Prefiro receitas práticas, mas uso técnicas profissionais quando realmente melhoram o resultado. Atenção especial a carnes, massas, molhos, assados, culinária brasileira e refeições familiares.";
 
 // ─── FIRE BACKGROUND ──────────────────────────────────────────────────────────
@@ -363,9 +364,11 @@ async function askAI(input, opts, asJson){
   if(!key) throw {code:"no_key"};
   const messages = typeof input==="string" ? [{role:"user",content:input}] : mergeTurns(input);
   if(opts.images){
-    const b64 = await shrinkImage(opts.images);
+    const list = Array.isArray(opts.images) ? opts.images : [opts.images];
+    const blocks = [];
+    for(const f of list.slice(0,4)){ const b64 = await shrinkImage(f); blocks.push({type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}}); }
     const last = messages[messages.length-1];
-    last.content = [{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:last.content}];
+    last.content = [...blocks,{type:"text",text:last.content}];
   }
   const saved = LS.get(MODEL_LS);
   const order = saved ? [saved,...MODELS.filter(m=>m!==saved)] : MODELS;
@@ -860,6 +863,20 @@ function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
   const [busy, setBusy] = useState(false);
   const [hist, setHist] = useState(()=> saved0&&Array.isArray(saved0.hist) ? saved0.hist : []);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [pending, setPending] = useState([]);           // photos waiting to be sent with a comment
+  const pendingRef = useRef([]);
+  const [showPick, setShowPick] = useState(false);
+  const camRef = useRef(null), galRef = useRef(null);
+  useEffect(()=>{ pendingRef.current = pending; },[pending]);
+  const addPhotos = async(e)=>{
+    const files = [...(e.target.files||[])]; e.target.value=""; setShowPick(false);
+    if(!files.length) return;
+    const room = 4 - pendingRef.current.length;
+    const take = files.slice(0, Math.max(0,room));
+    const items = [];
+    for(const f of take){ items.push({file:f, thumb: await makeThumb(f,320)}); }
+    setPending(p=>[...p,...items].slice(0,4));
+  };
   const [photoB64, setPhotoB64] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [cookMode, setCookMode] = useState(false);
@@ -885,7 +902,7 @@ function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
     let lastCard=-1; base.forEach((m,i)=>{ if(m.card) lastCard=i; });
     const noOld = base.map((m,i)=>m.card&&i!==lastCard?{...m,card:{...m.card,hero:null,photos:{}}}:m);
     if(saveJSON(CHAT_LS,{msgs:noOld,hist:h})) return;
-    saveJSON(CHAT_LS,{msgs:noOld.map(m=>m.card?{...m,card:{...m.card,hero:null,photos:{}}}:{...m,img:null}),hist:h});
+    saveJSON(CHAT_LS,{msgs:noOld.map(m=>m.card?{...m,card:{...m.card,hero:null,photos:{}}}:{...m,img:null,imgs:undefined}),hist:h});
   },[msgs,hist,busy]);
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,busy]);
 
@@ -956,24 +973,29 @@ Responda APENAS com um objeto JSON, sem texto extra:
   };
 
   const sendText = async(override, viaVoice)=>{
-    const msg=(typeof override==="string"?override:input).trim(); if(!msg||busyRef.current) return;
+    const photos = pendingRef.current;
+    const msg=(typeof override==="string"?override:input).trim(); if((!msg&&!photos.length)||busyRef.current) return;
     if(typeof override!=="string") setInput("");
     busyRef.current=true; setBusy(true);
-    setMsgs(m=>[...m,{role:"user",text:viaVoice?`🎙️ ${msg}`:msg}]);
+    if(photos.length){ setPending([]); pendingRef.current=[]; }
+    setMsgs(m=>[...m,{role:"user",text:msg?(viaVoice?`🎙️ ${msg}`:msg):"",imgs:photos.length?photos.map(x=>x.thumb).filter(Boolean):undefined}]);
     const VOICE_RULE = "\n\n(Esta mensagem foi FALADA na cozinha. Se for um pedido de receita, mande o cartão de receita normalmente: só a introdução e a pergunta final serão lidas em voz alta. Em qualquer outro caso, responda como numa conversa: no máximo 2 ou 3 frases curtas, sem listas, uma etapa por vez. Se a fala parecer cortada ou sem sentido, peça para repetir.)";
-    const turns=[rulesTurn(),...recentHist(),{role:"user",content:viaVoice?msg+VOICE_RULE:msg}];
+    const n = photos.length;
+    const photoNote = n?`(Enviei ${n} foto${n>1?"s":""} junto com esta mensagem.)\n`:"";
+    const userText = photoNote + (msg || "O que você vê nessas fotos? O que dá para fazer / como está?");
+    const turns=[rulesTurn(),...recentHist(),{role:"user",content:viaVoice?userText+VOICE_RULE:userText}];
     try{
-      const {text} = await askAI(turns,{cache:false,maxTokens:3500});
+      const {text} = await askAI(turns,{cache:false,maxTokens:3500,images:n?photos.map(x=>x.file):undefined});
       const card = parseCard(text);
       if(card){
         setMsgs(m=>[...m,...(card.before?[{role:"chef",text:card.before}]:[]),{role:"chef",text:"",card},...(card.after?[{role:"chef",text:card.after}]:[])]);
-        setHist(h=>[...h,{role:"user",content:msg},{role:"assistant",content:cardAsText(card)}]);
+        setHist(h=>[...h,{role:"user",content:(n?`[Enviei ${n} foto${n>1?"s":""}] `:"")+(msg||"")},{role:"assistant",content:cardAsText(card)}]);
         if(viaVoice||voiceOn) speak(`${card.intro} ${card.question}`,true);
         fillPhotos(card);
       } else {
         const clean = text.replace(/<\/?recipe>/gi,"");
         addChef(clean);
-        setHist(h=>[...h,{role:"user",content:msg},{role:"assistant",content:clean}]);
+        setHist(h=>[...h,{role:"user",content:(n?`[Enviei ${n} foto${n>1?"s":""}] `:"")+(msg||"")},{role:"assistant",content:clean}]);
         if(viaVoice) speak(clean,true);
       }
     }catch(e){ addChef(AI_ERR(e&&e.code)); }
@@ -1097,21 +1119,6 @@ ${convo}`,{cache:false},true);
         </div>
       )}
 
-      {/* INGREDIENT PHOTO PREVIEW */}
-      {!cookMode&&photoPreview&&(
-        <div style={{margin:"12px 16px",background:T.card,border:`1px solid ${T.border}`,borderRadius:14,padding:12,display:"flex",gap:12,alignItems:"center",animation:"slideUp .3s ease"}}>
-          <img src={photoPreview} alt="" style={{width:70,height:70,borderRadius:10,objectFit:"cover"}}/>
-          <div style={{flex:1}}>
-            <div style={{fontSize:13,fontWeight:600,color:T.cream,marginBottom:4}}>📷 Foto carregada!</div>
-            <div style={{fontSize:11,color:T.muted,marginBottom:8}}>O chef vai analisar seus ingredientes</div>
-            <button onClick={analyzePhoto} disabled={busy} style={{background:`linear-gradient(135deg,${p.color},${p.color}99)`,border:"none",borderRadius:10,padding:"7px 14px",color:"white",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-              {analyzing?(L.analyzing):(L.ingredientsBtn)}
-            </button>
-          </div>
-          <button onClick={()=>{setPhotoPreview(null);setPhotoB64(null);}} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:18,alignSelf:"flex-start"}}>×</button>
-        </div>
-      )}
-
       {/* MESSAGES */}
       <div style={{flex:1,overflowY:"auto"}}>
         <div style={{display:"flex",flexDirection:"column",gap:12,padding:16}}>
@@ -1121,6 +1128,11 @@ ${convo}`,{cache:false},true);
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                   <div style={{width:22,height:22,background:p.bg,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>{p.emoji}</div>
                   <span style={{fontSize:11,color:T.muted}}>{p.name}</span>
+                </div>
+              )}
+              {m.imgs&&m.imgs.length>0&&(
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end",marginBottom:6}}>
+                  {m.imgs.map((src,k)=><img key={k} src={src} alt="" style={{width:m.imgs.length>1?96:160,height:m.imgs.length>1?96:120,borderRadius:12,objectFit:"cover",border:`2px solid ${T.border}`}}/>)}
                 </div>
               )}
               {m.img&&(
@@ -1161,21 +1173,43 @@ ${convo}`,{cache:false},true);
         )}
       </div>
 
+      {/* PHOTO TRAY (up to 4 photos + one comment) */}
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={addPhotos}/>
+      <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={addPhotos}/>
+      {showPick&&(
+        <div style={{display:"flex",gap:8,padding:"8px 14px",background:"rgba(10,6,0,.97)",borderTop:`1px solid ${T.border}`}}>
+          <button className="bs" style={{flex:1,margin:0,padding:"10px"}} onClick={()=>camRef.current?.click()}>📷 Tirar foto</button>
+          <button className="bs" style={{flex:1,margin:0,padding:"10px"}} onClick={()=>galRef.current?.click()}>🖼️ Galeria</button>
+          <button className="bs" style={{width:"auto",margin:0,padding:"10px 14px"}} onClick={()=>setShowPick(false)}>✕</button>
+        </div>
+      )}
+      {pending.length>0&&(
+        <div style={{padding:"10px 14px 4px",background:"rgba(10,6,0,.97)",borderTop:`1px solid ${T.border}`}}>
+          <div style={{display:"flex",gap:10,alignItems:"center",overflowX:"auto",padding:"8px 8px 2px 2px"}}>
+            {pending.map((x,k)=>(
+              <div key={k} style={{position:"relative",flexShrink:0}}>
+                <img src={x.thumb} alt="" style={{width:64,height:64,borderRadius:10,objectFit:"cover",border:`2px solid ${p.color}`}}/>
+                <button onClick={()=>setPending(ps=>ps.filter((_,j)=>j!==k))} style={{position:"absolute",top:-7,right:-7,width:22,height:22,borderRadius:"50%",border:"none",background:"#000c",color:"#fff",fontSize:13,cursor:"pointer",lineHeight:"22px",padding:0}}>×</button>
+              </div>))}
+            {pending.length<4&&<>
+              <button onClick={()=>camRef.current?.click()} style={{width:64,height:64,flexShrink:0,borderRadius:10,border:`2px dashed ${T.border}`,background:"transparent",color:T.cream,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>＋📷<br/>Foto</button>
+              <button onClick={()=>galRef.current?.click()} style={{width:64,height:64,flexShrink:0,borderRadius:10,border:`2px dashed ${T.border}`,background:"transparent",color:T.cream,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🖼️<br/>Galeria</button>
+            </>}
+          </div>
+          <div style={{fontSize:11,color:T.muted,marginTop:6}}>{pending.length} de 4 fotos · escreva ou fale seu comentário e envie</div>
+        </div>
+      )}
+
       {/* INPUT BAR */}
       <div className="cir">
-        {!cookMode&&(
-          <>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handlePhoto}/>
-            <button className="pbtn" onClick={()=>fileRef.current?.click()} title={L.sendPhoto}>
-              <div style={{width:20,height:20,color:T.muted}}>{IC.cam}</div>
-            </button>
-          </>
-        )}
+        <button className="pbtn" onClick={()=>pending.length?camRef.current?.click():setShowPick(s=>!s)} title={L.sendPhoto} style={pending.length?{borderColor:p.color}:{}}>
+          <div style={{width:20,height:20,color:pending.length?p.color:T.muted}}>{IC.cam}</div>
+        </button>
         <button className="pbtn" onClick={tapMic} title="Falar com o Chef" style={listening?{background:T.accent,borderColor:T.accent,animation:"cookPulse 1.2s infinite"}:{}}>
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke={listening?"white":T.muted} strokeWidth="2" strokeLinecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v4"/></svg>
         </button>
-        <input className="ci" style={{minWidth:0}} placeholder={listening?"Ouvindo… fale agora":cookMode?"Pergunte ao chef enquanto cozinha...":(L.typeMsg)} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendText()}/>
-        <button className="sb" onClick={()=>sendText()} disabled={!input.trim()||busy}>
+        <input className="ci" style={{minWidth:0}} placeholder={listening?"Ouvindo… fale agora":pending.length?"Comentário sobre as fotos…":cookMode?"Pergunte ao chef enquanto cozinha...":(L.typeMsg)} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendText()}/>
+        <button className="sb" onClick={()=>sendText()} disabled={(!input.trim()&&!pending.length)||busy}>
           <div style={{width:16,height:16,color:"white"}}>{IC.send}</div>
         </button>
       </div>
