@@ -372,7 +372,7 @@ async function askAI(input, opts, asJson){
   let r;
   try{
     for(const model of order){
-      r = await callModel(model, key, messages, asJson?1200:900);
+      r = await callModel(model, key, messages, opts.maxTokens|| (asJson?1200:900));
       const t = r.data&&r.data.error&&r.data.error.type;
       if(r.status===404 || t==="not_found_error" || (r.status===400 && /model/i.test((r.data&&r.data.error&&r.data.error.message)||""))) continue;
       if(r.status===200) LS.set(MODEL_LS, model);
@@ -455,6 +455,126 @@ async function speakAI(text, chef, lang){
     await a.play();
     return true;
   }catch{ return false; }
+}
+
+// ─── RECIPE CARD (interactive: ingredient checklist, steps with photos) ──────
+const CARD_RULE = `FORMATO DE RECEITA: quando o usuário pedir uma receita ou disser que quer fazer um prato (e você ainda não mandou o cartão desse prato nesta conversa), responda com um CARTÃO DE RECEITA completo, como visão geral, dentro das tags <recipe> e </recipe>, contendo APENAS JSON válido neste formato:
+<recipe>{"title":"Macarrão cremoso com camarão","emoji":"🍤","intro":"1-2 frases animadas apresentando o prato","servings":"4 pessoas","time":"35-40 min","tags":["Cremosidade intensa"],"ingredients":[{"name":"500 g de macarrão","note":"tagliatelle ou fettuccine"}],"steps":[{"title":"Tempere os camarões","text":"instrução clara com fogo de 1 a 9, tempo e °C quando fizer sentido","img":"short English description of a realistic food photo for this step"}],"tips":[{"title":"A água do macarrão é indispensável","text":"por quê, em 1-2 frases"}],"question":"pergunta final ao usuário (ex.: se tem os ingredientes, quantas pessoas, tipo de macarrão)"}</recipe>
+Regras do cartão: 4 a 8 passos; ingredientes com quantidades; adapte à dieta, ao equipamento e ao gosto do usuário; use nomes de ingredientes do país do usuário quando souber. Depois que o cartão foi enviado e o usuário começar a cozinhar, NÃO mande outro cartão: guie uma ou duas etapas por vez, em texto normal. Para conversas que não são pedido de receita, responda em texto normal, sem tags.`;
+
+const parseCard = (text)=>{
+  const m = String(text).match(/<recipe>([\s\S]*?)<\/recipe>/i);
+  if(!m) return null;
+  try{
+    const raw = m[1].replace(/```json|```/g,"");
+    const c = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1));
+    if(!c||!c.title||!Array.isArray(c.steps)) return null;
+    return {
+      id: Date.now()+Math.floor(Math.random()*1000),
+      title:String(c.title), emoji:String(c.emoji||"🍽️"), intro:String(c.intro||""), servings:String(c.servings||""), time:String(c.time||""),
+      tags:(c.tags||[]).map(String).slice(0,4),
+      ingredients:(c.ingredients||[]).map(x=>typeof x==="string"?{name:x,note:""}:{name:String(x.name||""),note:String(x.note||"")}).filter(x=>x.name),
+      steps:(c.steps||[]).map(x=>({title:String(x.title||""),text:String(x.text||""),img:String(x.img||x.title||"")})),
+      tips:(c.tips||[]).map(x=>typeof x==="string"?{title:x,text:""}:{title:String(x.title||""),text:String(x.text||"")}),
+      question:String(c.question||""),
+      have:[], done:[], photos:{}, hero:null,
+      before: String(text).slice(0, m.index).trim(), after: String(text).slice(m.index+m[0].length).trim(),
+    };
+  }catch{ return null; }
+};
+const cardAsText = (c)=>`[Cartão de receita enviado] ${c.title} (${c.servings}, ${c.time}). Ingredientes: ${c.ingredients.map(i=>i.name).join("; ")}. Passos: ${c.steps.map((s,i)=>`${i+1}. ${s.title}: ${s.text}`).join(" ")} Pergunta: ${c.question}`;
+
+// AI step photos (OpenAI images, same key as the voice). Returns a small JPEG data URL or null.
+const IMG_MODELS = ["gpt-image-1-mini","gpt-image-1","dall-e-3"];
+const IMG_MODEL_LS = "echefe_img_model";
+const toThumbFromB64 = (b64, max)=>new Promise(res=>{
+  const img=new Image();
+  img.onload=()=>{ const sc=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement("canvas"); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc); c.getContext("2d").drawImage(img,0,0,c.width,c.height); res(c.toDataURL("image/jpeg",0.7)); };
+  img.onerror=()=>res(null);
+  img.src="data:image/png;base64,"+b64;
+});
+async function genImage(desc){
+  const key = LS.get(OAI_LS).trim(); if(!key) return null;
+  const prompt = `Realistic professional food photography, home kitchen, natural light, appetizing, close-up: ${desc}. No text, no logos, no faces.`;
+  const saved = LS.get(IMG_MODEL_LS);
+  const order = saved ? [saved,...IMG_MODELS.filter(m=>m!==saved)] : IMG_MODELS;
+  for(const model of order){
+    const body = model==="dall-e-3"
+      ? {model, prompt, n:1, size:"1024x1024", quality:"standard", response_format:"b64_json"}
+      : {model, prompt, n:1, size:"1024x1024", quality:"low"};
+    try{
+      const r = await fetch("https://api.openai.com/v1/images/generations",{method:"POST",headers:{"Authorization":"Bearer "+key,"Content-Type":"application/json"},body:JSON.stringify(body)});
+      if(r.status===401||r.status===429) return null;
+      if(!r.ok) continue;                     // model not available for this account → try next
+      const d = await r.json();
+      const b64 = d&&d.data&&d.data[0]&&d.data[0].b64_json;
+      if(!b64) continue;
+      LS.set(IMG_MODEL_LS, model);
+      return await toThumbFromB64(b64, 420);
+    }catch{ return null; }
+  }
+  return null;
+}
+
+function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, hasImgKey }){
+  const total = card.ingredients.length, have = card.have.length;
+  const ph = (src, emoji, h)=> src
+    ? <img src={src} alt="" style={{width:"100%",height:h,objectFit:"cover",borderRadius:12,display:"block"}}/>
+    : <div style={{width:"100%",height:h,borderRadius:12,background:"linear-gradient(135deg,rgba(255,107,0,.18),rgba(255,184,0,.08))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:h>120?54:30}}>{hasImgKey?<div className="typing"><div className="dot"/><div className="dot"/><div className="dot"/></div>:emoji}</div>;
+  const box = {width:24,height:24,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:".2s"};
+  return (
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden",width:"100%",animation:"slideUp .4s ease"}}>
+      {ph(card.hero, card.emoji, 170)}
+      <div style={{padding:14}}>
+        {card.intro&&<div style={{fontSize:14,color:T.cream,lineHeight:1.5,marginBottom:10}}>{card.intro}</div>}
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.cream,lineHeight:1.25}}>{card.emoji} {card.title}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+          {card.servings&&<span className="rtag" style={{fontSize:12}}>👥 {card.servings}</span>}
+          {card.time&&<span className="rtag" style={{fontSize:12}}>⏱ {card.time}</span>}
+          {card.tags.map((t,i)=><span key={i} className="rtag" style={{fontSize:12,background:"rgba(255,184,0,.1)",color:T.gold}}>{t}</span>)}
+        </div>
+
+        {/* INGREDIENTS CHECKLIST */}
+        <div style={{marginTop:16,border:`1px solid ${T.border}`,borderRadius:14,padding:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.cream}}>🧺 Ingredientes</div>
+            <div style={{fontSize:12,color:T.muted}}>{have} de {total}</div>
+          </div>
+          <div style={{background:T.border,borderRadius:6,height:5,overflow:"hidden",margin:"8px 0 6px"}}><div style={{width:`${total?have/total*100:0}%`,height:"100%",background:`linear-gradient(90deg,${T.accent},${T.gold})`,transition:"width .3s"}}/></div>
+          {card.ingredients.map((x,i)=>{ const on=card.have.includes(i); return (
+            <div key={i} onClick={()=>onToggleHave(i)} style={{display:"flex",gap:12,alignItems:"flex-start",padding:"9px 0",borderBottom:i<total-1?"1px solid rgba(61,40,0,.5)":"none",cursor:"pointer"}}>
+              <div style={{...box,border:`2px solid ${on?T.green:T.muted}`,background:on?T.green:"transparent",marginTop:1}}>{on&&<div style={{width:14,height:14,color:"#fff"}}>{IC.check}</div>}</div>
+              <div>
+                <div style={{fontSize:14,color:on?T.muted:T.cream,textDecoration:on?"line-through":"none"}}>{x.name}</div>
+                {x.note&&<div style={{fontSize:12,color:T.muted,marginTop:2}}>{x.note}</div>}
+              </div>
+            </div>);})}
+          <div style={{fontSize:11,color:T.muted,marginTop:6}}>Toque no que você já tem ✓</div>
+        </div>
+
+        {/* STEPS */}
+        <div style={{fontSize:15,fontWeight:700,color:T.cream,margin:"18px 0 10px"}}>👨‍🍳 Modo de preparo</div>
+        {card.steps.map((st,i)=>{ const on=card.done.includes(i); return (
+          <div key={i} style={{display:"flex",gap:12,padding:"10px 0",borderTop:i?`1px solid ${T.border}`:"none",opacity:on?.55:1}}>
+            <div style={{width:112,flexShrink:0}}>{ph(card.photos[i], card.emoji, 112)}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:700,color:T.cream,lineHeight:1.3}}>Passo {i+1} — {st.title}</div>
+              <div style={{fontSize:13,color:T.cream,lineHeight:1.5,marginTop:4,opacity:.9}}>{st.text}</div>
+              <button onClick={()=>onToggleDone(i)} style={{marginTop:8,background:on?T.green:"transparent",border:`1px solid ${on?T.green:T.border}`,borderRadius:20,padding:"4px 12px",color:on?"#fff":T.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{on?"✓ Feito":"Marcar como feito"}</button>
+            </div>
+          </div>);})}
+
+        {/* TIPS */}
+        {card.tips.length>0&&<>
+          <div style={{fontSize:15,fontWeight:700,color:T.cream,margin:"16px 0 8px"}}>⭐ Dicas para ficar espetacular</div>
+          {card.tips.map((t,i)=><div key={i} style={{fontSize:13,color:T.cream,lineHeight:1.5,marginBottom:8}}><b style={{color:T.gold}}>{i+1}. {t.title}</b>{t.text?" "+t.text:""}</div>)}
+        </>}
+        {card.question&&<div style={{fontSize:14,color:T.cream,lineHeight:1.5,marginTop:12,padding:12,background:"rgba(255,107,0,.08)",border:"1px solid rgba(255,107,0,.25)",borderRadius:12}}>{card.question}</div>}
+        <button className="bp" onClick={onStart} style={{width:"100%",margin:"14px 0 0",background:`linear-gradient(135deg,${color},${color}cc)`}}>▶ Cozinhar comigo, passo a passo</button>
+        {!hasImgKey&&<div style={{fontSize:11,color:T.muted,marginTop:8,textAlign:"center"}}>📷 Para ver fotos de cada passo, coloque a chave da OpenAI no 👤 Perfil.</div>}
+      </div>
+    </div>
+  );
 }
 
 // ─── VOICE ENGINE: always listening for "Ei Chef" ─────────────────────────────
@@ -695,7 +815,17 @@ function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
 
   useEffect(()=>{ histRef.current = hist; },[hist]);
   // keep the conversation even if the app is closed
-  useEffect(()=>{ if(busy) return; saveJSON(CHAT_LS,{msgs:msgs.slice(-80).map(m=>m.img&&!String(m.img).startsWith("data:")?{...m,img:null}:m),hist:hist.slice(-60)}); },[msgs,hist,busy]);
+  useEffect(()=>{
+    if(busy) return;
+    const base = msgs.slice(-80).map(m=>m.img&&!String(m.img).startsWith("data:")?{...m,img:null}:m);
+    const h = hist.slice(-60);
+    if(saveJSON(CHAT_LS,{msgs:base,hist:h})) return;
+    // too big for the phone storage: drop photos of older cards, then all photos
+    let lastCard=-1; base.forEach((m,i)=>{ if(m.card) lastCard=i; });
+    const noOld = base.map((m,i)=>m.card&&i!==lastCard?{...m,card:{...m.card,hero:null,photos:{}}}:m);
+    if(saveJSON(CHAT_LS,{msgs:noOld,hist:h})) return;
+    saveJSON(CHAT_LS,{msgs:noOld.map(m=>m.card?{...m,card:{...m.card,hero:null,photos:{}}}:{...m,img:null}),hist:h});
+  },[msgs,hist,busy]);
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,busy]);
 
   const voiceOn = voice.state==="listening";
@@ -719,7 +849,7 @@ function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
     analyzeCookPhoto(file, url);
   };
 
-  const rulesTurn = ()=>({role:"user",content:`${L.system}${sysExtra}\n\n(Estas são suas instruções permanentes como chef. Responda à próxima mensagem do usuário seguindo-as. Seja conciso e prático, sem markdown pesado.)`});
+  const rulesTurn = ()=>({role:"user",content:`${L.system}${sysExtra}\n\n${CARD_RULE}\n\n(Estas são suas instruções permanentes como chef. Responda à próxima mensagem do usuário seguindo-as. Seja conciso e prático, sem markdown pesado.)`});
   const recentHist = ()=>{ const h=histRef.current.slice(-40); let total=0, out=[]; for(let i=h.length-1;i>=0;i--){ total+=h[i].content.length; if(total>30000) break; out.unshift(h[i]); } if(out.length&&out[0].role!=="user") out.shift(); return out; };
   const addChef = (text)=>setMsgs(m=>[...m,{role:"chef",text}]);
   const done = ()=>{ busyRef.current=false; setBusy(false); setAnalyzing(false); setCookAnalyzing(false); };
@@ -769,23 +899,41 @@ Responda APENAS com um objeto JSON, sem texto extra:
     if(typeof override!=="string") setInput("");
     busyRef.current=true; setBusy(true);
     setMsgs(m=>[...m,{role:"user",text:viaVoice?`🎙️ ${msg}`:msg}]);
-    const VOICE_RULE = "\n\n(Esta pergunta foi FALADA na cozinha e a resposta será lida em voz alta. Responda como numa conversa: no máximo 2 ou 3 frases curtas, sem listas. Se for uma receita, diga só o primeiro passo e pergunte se pode continuar. Se a fala parecer cortada ou sem sentido, peça para repetir.)";
+    const VOICE_RULE = "\n\n(Esta mensagem foi FALADA na cozinha. Se for um pedido de receita, mande o cartão de receita normalmente: só a introdução e a pergunta final serão lidas em voz alta. Em qualquer outro caso, responda como numa conversa: no máximo 2 ou 3 frases curtas, sem listas, uma etapa por vez. Se a fala parecer cortada ou sem sentido, peça para repetir.)";
     const turns=[rulesTurn(),...recentHist(),{role:"user",content:viaVoice?msg+VOICE_RULE:msg}];
-    let started=false;
     try{
-      const {text} = await askAI(turns,{cache:false,onText:({text})=>{
-        if(!started){ started=true; setBusy(false); setMsgs(m=>[...m,{role:"chef",text}]); }
-        else setMsgs(m=>{const c=[...m]; c[c.length-1]={...c[c.length-1],text}; return c;});
-      }});
-      if(!started) addChef(text);
-      setHist(h=>[...h,{role:"user",content:msg},{role:"assistant",content:text}]);
-      if(viaVoice) speak(text,true);
-    }catch(e){
-      if(started&&e&&e.text){ /* keep partial */ }
-      else addChef(AI_ERR(e&&e.code));
-    }
+      const {text} = await askAI(turns,{cache:false,maxTokens:3500});
+      const card = parseCard(text);
+      if(card){
+        setMsgs(m=>[...m,...(card.before?[{role:"chef",text:card.before}]:[]),{role:"chef",text:"",card},...(card.after?[{role:"chef",text:card.after}]:[])]);
+        setHist(h=>[...h,{role:"user",content:msg},{role:"assistant",content:cardAsText(card)}]);
+        if(viaVoice||voiceOn) speak(`${card.intro} ${card.question}`,true);
+        fillPhotos(card);
+      } else {
+        const clean = text.replace(/<\/?recipe>/gi,"");
+        addChef(clean);
+        setHist(h=>[...h,{role:"user",content:msg},{role:"assistant",content:clean}]);
+        if(viaVoice) speak(clean,true);
+      }
+    }catch(e){ addChef(AI_ERR(e&&e.code)); }
     done();
   };
+
+  // ─── RECIPE CARD STATE ───
+  const updateCard = (id, fn)=>setMsgs(ms=>ms.map(x=>x.card&&x.card.id===id?{...x,card:fn(x.card)}:x));
+  const toggleIn = (arr,i)=>arr.includes(i)?arr.filter(x=>x!==i):[...arr,i];
+  const fillPhotos = async(c)=>{
+    if(!LS.get(OAI_LS)) return;
+    const hero = await genImage(`${c.title}, finished dish beautifully plated`);
+    if(!hero) return;                                   // no image access → keep icons
+    updateCard(c.id, x=>({...x,hero}));
+    for(let i=0;i<c.steps.length;i++){
+      const img = await genImage(c.steps[i].img||c.steps[i].title);
+      if(!img) break;
+      updateCard(c.id, x=>({...x,photos:{...x.photos,[i]:img}}));
+    }
+  };
+  const lastCardHero = ()=>{ for(let i=msgs.length-1;i>=0;i--){ if(msgs[i].card&&msgs[i].card.hero) return msgs[i].card.hero; } return null; };
 
   // ─── SAVE RECIPE (favorites with my adjustments) ───
   const saveRecipe = async()=>{
@@ -803,7 +951,7 @@ ${convo}`,{cache:false},true);
       if(!r||!r.title) throw {code:"invalid_json"};
       const rec = {id:Date.now(), title:String(r.title), emoji:String(r.emoji||"🍽️"), servings:String(r.servings||""), time:String(r.time||""),
         ingredients:(r.ingredients||[]).map(String), steps:(r.steps||[]).map(String), adjustments:(r.adjustments||[]).map(String), tips:(r.tips||[]).map(String),
-        photo:lastPhotoRef.current||null, notes:"", chef, createdAt:Date.now(), cooked:[Date.now()]};
+        photo:lastPhotoRef.current||lastCardHero()||null, notes:"", chef, createdAt:Date.now(), cooked:[Date.now()]};
       const ok = saveRecipes([rec,...loadRecipes()]);
       addChef(ok?`⭐ Receita salva: ${rec.title}!\n\nEstá na aba ⭐ Receitas, com os seus ajustes${rec.photo?" e a foto do resultado":""}. Quando quiser repetir do seu jeito, é só abrir e tocar em 🔁 Cozinhar de novo.`:"Não consegui salvar: a memória do celular para o app está cheia. Apague alguma receita antiga em ⭐ Receitas.");
       if(voiceOn&&ok) speak(`Receita salva: ${rec.title}!`);
@@ -907,7 +1055,7 @@ ${convo}`,{cache:false},true);
       <div style={{flex:1,overflowY:"auto"}}>
         <div style={{display:"flex",flexDirection:"column",gap:12,padding:16}}>
           {msgs.map((m,i)=>(
-            <div key={i} style={{alignSelf:m.role==="chef"?"flex-start":"flex-end",maxWidth:"88%",display:"flex",flexDirection:"column",width:m.isCookFeedback?"90%":"auto"}}>
+            <div key={i} style={{alignSelf:m.role==="chef"?"flex-start":"flex-end",maxWidth:m.card?"100%":"88%",display:"flex",flexDirection:"column",width:m.card?"100%":m.isCookFeedback?"90%":"auto"}}>
               {m.role==="chef"&&(
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                   <div style={{width:22,height:22,background:p.bg,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>{p.emoji}</div>
@@ -920,7 +1068,12 @@ ${convo}`,{cache:false},true);
                   {m.isCook&&<div style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,.7)",borderRadius:8,padding:"2px 7px",fontSize:10,color:"white",fontWeight:700}}>📸 AO VIVO</div>}
                 </div>
               )}
-              {m.isCookFeedback?(
+              {m.card?(
+                <RecipeCard card={m.card} color={p.color} hasImgKey={!!LS.get(OAI_LS)}
+                  onToggleHave={(k)=>updateCard(m.card.id,c=>({...c,have:toggleIn(c.have,k)}))}
+                  onToggleDone={(k)=>updateCard(m.card.id,c=>({...c,done:toggleIn(c.done,k)}))}
+                  onStart={()=>sendText(`Vamos começar a fazer ${m.card.title}!${m.card.have.length<m.card.ingredients.length?` Dos ingredientes, eu tenho: ${m.card.have.map(k=>m.card.ingredients[k].name).join(", ")||"(ainda não marquei)"}.`:" Tenho todos os ingredientes."} Me guie a partir do passo 1, uma ou duas etapas por vez.`)}/>
+              ):m.isCookFeedback?(
                 <CookFeedback score={m.score} comment={m.comment} fix={m.fix} nextStep={m.nextStep} chefColor={p.color} emoji={p.emoji}/>
               ):(
                 m.text&&<div className={`cbbl ${m.role}`} style={{whiteSpace:"pre-wrap"}}>{m.text}</div>
