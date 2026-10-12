@@ -463,8 +463,8 @@ async function speakAI(text, chef, lang){
 
 // ─── RECIPE CARD (interactive: ingredient checklist, steps with photos) ──────
 const CARD_RULE = `FORMATO DE RECEITA: quando o usuário pedir uma receita ou disser que quer fazer um prato (e você ainda não mandou o cartão desse prato nesta conversa), responda com um CARTÃO DE RECEITA completo, como visão geral, dentro das tags <recipe> e </recipe>, contendo APENAS JSON válido neste formato:
-<recipe>{"title":"Macarrão cremoso com camarão","emoji":"🍤","intro":"1-2 frases animadas apresentando o prato","servings":"4 pessoas","time":"35-40 min","tags":["Cremosidade intensa"],"ingredients":[{"name":"500 g de macarrão","note":"tagliatelle ou fettuccine"}],"steps":[{"title":"Tempere os camarões","text":"instrução clara com fogo de 1 a 9, tempo e °C quando fizer sentido","img":"short English description of a realistic food photo for this step"}],"tips":[{"title":"A água do macarrão é indispensável","text":"por quê, em 1-2 frases"}],"question":"pergunta final ao usuário (ex.: se tem os ingredientes, quantas pessoas, tipo de macarrão)"}</recipe>
-Regras do cartão: 4 a 8 passos; ingredientes com quantidades; adapte à dieta, ao equipamento e ao gosto do usuário; use nomes de ingredientes do país do usuário quando souber. MANDE UM NOVO CARTÃO COMPLETO (com tudo recalculado e a lista de ingredientes nova) sempre que o usuário: informar um número de pessoas diferente do cartão, pedir para ajustar quantidades, trocar ingredientes ou mudar a receita (ex.: deixar mais cremoso), ou pedir para repassar/rever/mostrar de novo a receita OU a lista de ingredientes (ex.: "vamos repassar a lista de ingredientes"). Nesse caso o cartão novo vem com a lista inteira para ele marcar de novo, e o "intro" diz que é a lista repassada. Escreva no "intro" o que mudou. Durante o preparo (depois que ele começou a cozinhar), guie uma ou duas etapas por vez, em texto normal. Para conversas que não são pedido de receita, responda em texto normal, sem tags.`;
+<recipe>{"title":"Macarrão cremoso com camarão","emoji":"🍤","intro":"1-2 frases animadas apresentando o prato","servings":"4 pessoas","time":"35-40 min","tags":["Cremosidade intensa"],"ingredients":[{"name":"500 g de macarrão","note":"tagliatelle ou fettuccine"}],"steps":[{"title":"Tempere os camarões","text":"instrução clara com fogo de 1 a 9, tempo e °C quando fizer sentido","minutes":0,"img":"short English description of a realistic food photo for this step"}],"tips":[{"title":"A água do macarrão é indispensável","text":"por quê, em 1-2 frases"}],"question":"pergunta final ao usuário (ex.: se tem os ingredientes, quantas pessoas, tipo de macarrão)"}</recipe>
+Regras do cartão: em cada passo, "minutes" = tempo em minutos que precisa ser cronometrado (cozinhar, assar, reduzir, descansar, marinar), ou 0 se não tiver; 4 a 8 passos; ingredientes com quantidades; adapte à dieta, ao equipamento e ao gosto do usuário; use nomes de ingredientes do país do usuário quando souber. MANDE UM NOVO CARTÃO COMPLETO (com tudo recalculado e a lista de ingredientes nova) sempre que o usuário: informar um número de pessoas diferente do cartão, pedir para ajustar quantidades, trocar ingredientes ou mudar a receita (ex.: deixar mais cremoso), ou pedir para repassar/rever/mostrar de novo a receita OU a lista de ingredientes (ex.: "vamos repassar a lista de ingredientes"). Nesse caso o cartão novo vem com a lista inteira para ele marcar de novo, e o "intro" diz que é a lista repassada. Escreva no "intro" o que mudou. Durante o preparo (depois que ele começou a cozinhar), guie uma ou duas etapas por vez, em texto normal. Para conversas que não são pedido de receita, responda em texto normal, sem tags.`;
 
 const parseCard = (text)=>{
   const m = String(text).match(/<recipe>([\s\S]*?)<\/recipe>/i);
@@ -478,7 +478,7 @@ const parseCard = (text)=>{
       title:String(c.title), emoji:String(c.emoji||"🍽️"), intro:String(c.intro||""), servings:String(c.servings||""), time:String(c.time||""),
       tags:(c.tags||[]).map(String).slice(0,4),
       ingredients:(c.ingredients||[]).map(x=>typeof x==="string"?{name:x,note:""}:{name:String(x.name||""),note:String(x.note||"")}).filter(x=>x.name),
-      steps:(c.steps||[]).map(x=>({title:String(x.title||""),text:String(x.text||""),img:String(x.img||x.title||"")})),
+      steps:(c.steps||[]).map(x=>({title:String(x.title||""),text:String(x.text||""),img:String(x.img||x.title||""),minutes:Math.min(600,Math.max(0,parseFloat(x.minutes)||0))})),
       tips:(c.tips||[]).map(x=>typeof x==="string"?{title:x,text:""}:{title:String(x.title||""),text:String(x.text||"")}),
       question:String(c.question||""),
       have:[], done:[], photos:{}, hero:null,
@@ -520,7 +520,7 @@ async function genImage(desc){
   return null;
 }
 
-function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServings, onReview, hasImgKey }){
+function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServings, onReview, onTimer, hasImgKey }){
   const total = card.ingredients.length, have = card.have.length;
   const ph = (src, emoji, h)=> src
     ? <img src={src} alt="" style={{width:"100%",height:h,objectFit:"cover",borderRadius:12,display:"block"}}/>
@@ -572,6 +572,7 @@ function RecipeCard({ card, color, onToggleHave, onToggleDone, onStart, onServin
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:14,fontWeight:700,color:T.cream,lineHeight:1.3}}>Passo {i+1} — {st.title}</div>
               <div style={{fontSize:13,color:T.cream,lineHeight:1.5,marginTop:4,opacity:.9}}>{st.text}</div>
+              {st.minutes>0&&<button onClick={()=>onTimer({minutes:st.minutes,label:st.title})} style={{marginTop:8,marginRight:6,background:"rgba(255,184,0,.12)",border:`1px solid ${T.gold}66`,borderRadius:20,padding:"4px 12px",color:T.gold,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⏱ {minLabel(st.minutes)}</button>}
               <button onClick={()=>onToggleDone(i)} style={{marginTop:8,background:on?T.green:"transparent",border:`1px solid ${on?T.green:T.border}`,borderRadius:20,padding:"4px 12px",color:on?"#fff":T.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{on?"✓ Feito":"Marcar como feito"}</button>
             </div>
           </div>);})}
@@ -855,14 +856,151 @@ function VoiceBar({ v, chefName }){
   );
 }
 
+// ─── COOKING TIMERS ──────────────────────────────────────────────────────────
+const TIMER_RULE = `TIMERS: sempre que você der um tempo de cozimento, forno, descanso ou fervura (ex.: "deixe no fogo 4 por 25 minutos"), coloque no FIM da mensagem uma tag por tempo, assim: <timer minutes="25" label="Molho no fogo 4" stir="5"/>  — "label" curto (2-4 palavras); "stir" (opcional) = de quantos em quantos minutos lembrar de mexer, só quando precisar mexer de vez em quando. Se o usuário PEDIR para marcar/iniciar/ligar um timer, use auto="1" na tag (ex.: <timer minutes="25" label="Molho" auto="1"/>) e confirme em uma frase curta. Não escreva a tag dentro do cartão de receita: nele, use o campo "minutes" de cada passo.`;
+
+const TIMER_RE = /<timer\b([^>]*)\/?>(?:<\/timer>)?/gi;
+const parseTimers = (text)=>{
+  const out=[];
+  String(text).replace(TIMER_RE,(m,attrs)=>{
+    const get=(k)=>{ const r=attrs.match(new RegExp(k+'\\s*=\\s*"([^"]*)"','i')); return r?r[1]:""; };
+    const minutes=parseFloat(get("minutes").replace(",","."));
+    if(minutes>0 && minutes<=600) out.push({minutes, label:get("label")||"Timer", stir:parseFloat(get("stir"))||0, auto:get("auto")==="1"});
+    return "";
+  });
+  return out;
+};
+const stripTimers = (text)=>String(text).replace(TIMER_RE,"").replace(/[ \t]+\n/g,"\n").trim();
+
+const fmtTime = (ms)=>{
+  const s=Math.max(0,Math.ceil(ms/1000)), h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
+  return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(ss).padStart(2,"0");
+};
+const minLabel = (min)=> min<1 ? `${Math.round(min*60)} s` : (min%1? `${min.toString().replace(".",",")} min` : `${min} min`);
+
+let _alarmIv=null;
+const alarmStart = ()=>{ if(_alarmIv) return; const ring=()=>{ beep(988,180); setTimeout(()=>beep(784,180),220); setTimeout(()=>beep(988,240),440); try{navigator.vibrate&&navigator.vibrate([300,150,300]);}catch{} }; ring(); _alarmIv=setInterval(ring,1600); };
+const alarmStop = ()=>{ clearInterval(_alarmIv); _alarmIv=null; try{navigator.vibrate&&navigator.vibrate(0);}catch{} };
+
+const notify = (title, body)=>{
+  try{
+    if(!("Notification" in window) || Notification.permission!=="granted") return;
+    if(navigator.serviceWorker&&navigator.serviceWorker.ready) navigator.serviceWorker.ready.then(r=>r.showNotification(title,{body,icon:"icon-192.png",vibrate:[300,150,300],tag:"echefe-timer",renotify:true})).catch(()=>{ try{ new Notification(title,{body}); }catch{} });
+    else new Notification(title,{body});
+  }catch{}
+};
+
+function useTimers(speak){
+  const [timers, setTimers] = useState(()=>loadJSON("echefe_timers",[]).filter(t=>!t.fired||Date.now()-t.endAt<30*60000));
+  const [now, setNow] = useState(Date.now());
+  const speakRef = useRef(speak); speakRef.current = speak;
+  const wakeRef = useRef(null);
+  useEffect(()=>{ saveJSON("echefe_timers",timers); },[timers]);
+  useEffect(()=>{
+    if(!timers.length){ try{ wakeRef.current&&wakeRef.current.release(); }catch{} wakeRef.current=null; return; }
+    (async()=>{ try{ if(navigator.wakeLock&&!wakeRef.current){ wakeRef.current=await navigator.wakeLock.request("screen"); wakeRef.current.addEventListener("release",()=>{wakeRef.current=null;}); } }catch{} })();
+    const iv=setInterval(()=>setNow(Date.now()),500);
+    const vis=()=>{ if(document.visibilityState==="visible") setNow(Date.now()); };
+    document.addEventListener("visibilitychange",vis);
+    return ()=>{ clearInterval(iv); document.removeEventListener("visibilitychange",vis); };
+  },[timers.length]);
+  // fire alarms and stir reminders
+  useEffect(()=>{
+    let changed=false;
+    const next = timers.map(t=>{
+      if(!t.fired && now>=t.endAt){
+        changed=true;
+        alarmStart();
+        notify("⏰ eChefe", `${t.label}: o tempo acabou!`);
+        setTimeout(()=>speakRef.current&&speakRef.current(`${t.label}: o tempo acabou!`),1200);
+        return {...t,fired:true};
+      }
+      if(!t.fired && t.stir>0 && now>=t.lastStir+t.stir*60000 && t.endAt-now>40000){
+        changed=true;
+        beep(660,150); setTimeout(()=>beep(660,150),250);
+        notify("🥄 eChefe", `Hora de mexer: ${t.label}`);
+        speakRef.current&&speakRef.current(`Hora de dar uma mexida: ${t.label}.`);
+        return {...t,lastStir:now};
+      }
+      return t;
+    });
+    if(changed) setTimers(next);
+    if(!next.some(t=>t.fired)) alarmStop();
+  },[now]);
+
+  const add = ({minutes,label,stir})=>{
+    try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); _actx.resume(); }catch{}
+    try{ if("Notification" in window && Notification.permission==="default") Notification.requestPermission(); }catch{}
+    const t={id:Date.now()+Math.random(), label:String(label||"Timer").slice(0,40), total:minutes*60000, endAt:Date.now()+minutes*60000, stir:stir||0, lastStir:Date.now(), fired:false};
+    setTimers(ts=>[...ts,t]); setNow(Date.now());
+    return t;
+  };
+  const remove = (id)=>setTimers(ts=>{ const n=ts.filter(t=>t.id!==id); if(!n.some(t=>t.fired)) alarmStop(); return n; });
+  const plus = (id, min=1)=>setTimers(ts=>ts.map(t=>t.id===id?(t.fired?{...t,fired:false,endAt:Date.now()+min*60000,total:min*60000}:{...t,endAt:t.endAt+min*60000,total:t.total+min*60000}):t));
+  return {timers, now, add, remove, plus};
+}
+
+function TimerDock({ tm }){
+  if(!tm.timers.length) return null;
+  return (
+    <div style={{flexShrink:0,background:"#140E00",borderTop:"1px solid #3D2800",padding:"6px 10px",display:"flex",flexDirection:"column",gap:6,maxHeight:170,overflowY:"auto",zIndex:110}}>
+      {tm.timers.map(t=>{
+        const left=t.endAt-tm.now, pct=Math.min(100,Math.max(0,100-left/t.total*100));
+        const nextStir = t.stir>0&&!t.fired ? Math.max(0,t.lastStir+t.stir*60000-tm.now) : 0;
+        return (
+          <div key={t.id} onClick={t.fired?()=>tm.remove(t.id):undefined} style={{position:"relative",overflow:"hidden",borderRadius:12,border:`1px solid ${t.fired?"#E74C3C":"#3D2800"}`,background:t.fired?"#C0392B":"#1E1400",animation:t.fired?"cookPulse 1s infinite":"none",cursor:t.fired?"pointer":"default"}}>
+            {!t.fired&&<div style={{position:"absolute",left:0,top:0,bottom:0,width:pct+"%",background:"linear-gradient(90deg,rgba(255,107,0,.25),rgba(255,184,0,.18))",transition:"width .5s linear"}}/>}
+            <div style={{position:"relative",display:"flex",alignItems:"center",gap:8,padding:"7px 10px"}}>
+              <span style={{fontSize:18}}>{t.fired?"⏰":"⏱"}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#FFF5E0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.label}</div>
+                {t.fired?<div style={{fontSize:11,color:"#fff"}}>Pronto! Toque para parar o alarme</div>
+                  :nextStir>0&&<div style={{fontSize:11,color:"#8A6A40"}}>🥄 mexer em {fmtTime(nextStir)}</div>}
+              </div>
+              {!t.fired&&<div style={{fontFamily:"'DM Sans',sans-serif",fontVariantNumeric:"tabular-nums",fontSize:20,fontWeight:700,color:"#FFB800",minWidth:62,textAlign:"right"}}>{fmtTime(left)}</div>}
+              <button onClick={(e)=>{e.stopPropagation(); tm.plus(t.id,1);}} style={{background:"transparent",border:"1px solid #3D2800",borderRadius:10,color:"#FFF5E0",fontSize:12,fontWeight:700,padding:"5px 8px",cursor:"pointer"}}>+1</button>
+              <button onClick={(e)=>{e.stopPropagation(); tm.remove(t.id);}} style={{background:"transparent",border:"none",color:t.fired?"#fff":"#8A6A40",fontSize:18,cursor:"pointer",padding:"0 4px"}}>✕</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TimerPicker({ onStart, onClose }){
+  const [label, setLabel] = useState("");
+  const [custom, setCustom] = useState("");
+  const go = (min)=>{ if(min>0){ onStart({minutes:min,label:label.trim()||`Timer ${minLabel(min)}`}); onClose(); } };
+  return (
+    <div style={{padding:"10px 14px",background:"rgba(10,6,0,.97)",borderTop:"1px solid #3D2800"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#FFF5E0"}}>⏱ Novo timer</div>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#8A6A40",fontSize:18,cursor:"pointer"}}>✕</button>
+      </div>
+      <input className="ci" style={{width:"100%",borderRadius:12,marginBottom:8}} placeholder="Para quê? (ex.: Molho, Massa, Forno)" value={label} onChange={e=>setLabel(e.target.value)}/>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {[1,3,5,8,10,12,15,20,25,30,45,60].map(m=>(
+          <button key={m} onClick={()=>go(m)} style={{background:"#1E1400",border:"1px solid #3D2800",borderRadius:14,padding:"7px 11px",color:"#FFF5E0",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{m} min</button>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <input className="ci" style={{borderRadius:12,minWidth:0}} inputMode="decimal" placeholder="Outro tempo (min)" value={custom} onChange={e=>setCustom(e.target.value)}/>
+        <button className="sb" style={{width:"auto",borderRadius:12,padding:"0 14px",color:"#fff",fontWeight:700}} onClick={()=>go(parseFloat(String(custom).replace(",",".")))}>Iniciar</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── CHAT ─────────────────────────────────────────────────────────────────────
-function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
+function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go, startTimer }) {
   const p = CHEFS[chef], L = LANGS[lang];
   const sysExtra = `\n\n${CHEF_RULES}\n\nPersonalidade: ${p.personality}\nNível do usuário: ${prefs.level}. Equipamento preferido: ${prefs.appliance}. Dieta: ${prefs.diet}.\nGosto pessoal do usuário: ${prefs.taste||DEFAULT_TASTE}`;
 
   const saved0 = useRef(loadJSON(CHAT_LS, null)).current;
   const [msgs, setMsgs] = useState(()=> saved0&&Array.isArray(saved0.msgs)&&saved0.msgs.length ? saved0.msgs : [{role:"chef",text:L.greeting}]);
   const [savingRecipe, setSavingRecipe] = useState(false);
+  const [showTimer, setShowTimer] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hist, setHist] = useState(()=> saved0&&Array.isArray(saved0.hist) ? saved0.hist : []);
@@ -939,7 +1077,7 @@ function Chat({ chef, lang, prefs, voice, voiceCmd, seed, go }) {
     analyzeCookPhoto(file, url);
   };
 
-  const rulesTurn = ()=>({role:"user",content:`${L.system}${sysExtra}\n\n${CARD_RULE}\n\n(Estas são suas instruções permanentes como chef. Responda à próxima mensagem do usuário seguindo-as. Seja conciso e prático, sem markdown pesado.)`});
+  const rulesTurn = ()=>({role:"user",content:`${L.system}${sysExtra}\n\n${CARD_RULE}\n\n${TIMER_RULE}\n\n(Estas são suas instruções permanentes como chef. Responda à próxima mensagem do usuário seguindo-as. Seja conciso e prático, sem markdown pesado.)`});
   const recentHist = ()=>{ const h=histRef.current.slice(-40); let total=0, out=[]; for(let i=h.length-1;i>=0;i--){ total+=h[i].content.length; if(total>30000) break; out.unshift(h[i]); } if(out.length&&out[0].role!=="user") out.shift(); return out; };
   const addChef = (text)=>setMsgs(m=>[...m,{role:"chef",text}]);
   const done = ()=>{ busyRef.current=false; setBusy(false); setAnalyzing(false); setCookAnalyzing(false); };
@@ -1005,9 +1143,11 @@ Responda APENAS com um objeto JSON, sem texto extra:
         if(viaVoice||voiceOn) speak(`${card.intro} ${card.question}`,true);
         fillPhotos(card);
       } else {
-        const clean = text.replace(/<\/?recipe>/gi,"");
-        addChef(clean);
-        setHist(h=>[...h,{role:"user",content:(n?`[Enviei ${n} foto${n>1?"s":""}] `:"")+(msg||"")},{role:"assistant",content:clean}]);
+        const tms = parseTimers(text);
+        const clean = stripTimers(text.replace(/<\/?recipe>/gi,""));
+        const timers = tms.map(t=>{ if(t.auto&&startTimer){ startTimer(t); return {...t,started:true}; } return t; });
+        setMsgs(m=>[...m,{role:"chef",text:clean,timers:timers.length?timers:undefined}]);
+        setHist(h=>[...h,{role:"user",content:(n?`[Enviei ${n} foto${n>1?"s":""}] `:"")+(msg||"")},{role:"assistant",content:clean+(timers.length?`\n(${timers.map(t=>`${t.started?"Timer iniciado":"Timer sugerido"}: ${t.label} ${t.minutes} min`).join("; ")})`:"")}]);
         if(viaVoice) speak(clean,true);
       }
     }catch(e){ addChef(AI_ERR(e&&e.code)); }
@@ -1135,12 +1275,14 @@ ${convo}`,{cache:false,maxTokens:6000},true);
       </div>
 
       {/* ACTIONS */}
-      {msgs.length>1&&(
+      {(
         <div style={{display:"flex",gap:8,padding:"8px 16px",borderBottom:`1px solid ${T.border}`,background:"rgba(10,6,0,.85)",position:"relative",zIndex:4}}>
-          <button onClick={saveRecipe} disabled={savingRecipe||busy} style={{flex:1,background:"rgba(255,184,0,.12)",border:`1px solid ${T.gold}55`,borderRadius:12,padding:"8px 10px",color:T.gold,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{savingRecipe?"⏳ Salvando...":"⭐ Salvar receita"}</button>
-          <button onClick={newChat} disabled={busy} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"8px 12px",color:T.cream,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗒️ Nova conversa</button>
+          <button onClick={()=>setShowTimer(v=>!v)} style={{background:showTimer?"rgba(255,107,0,.15)":T.card,border:`1px solid ${showTimer?T.accent:T.border}`,borderRadius:12,padding:"8px 12px",color:T.cream,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⏱ Timer</button>
+          {msgs.length>1&&<button onClick={saveRecipe} disabled={savingRecipe||busy} style={{flex:1,background:"rgba(255,184,0,.12)",border:`1px solid ${T.gold}55`,borderRadius:12,padding:"8px 10px",color:T.gold,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{savingRecipe?"⏳ Salvando...":"⭐ Salvar"}</button>}
+          {msgs.length>1&&<button onClick={newChat} disabled={busy} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"8px 12px",color:T.cream,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗒️ Nova conversa</button>}
         </div>
       )}
+      {showTimer&&<TimerPicker onStart={(t)=>startTimer&&startTimer(t)} onClose={()=>setShowTimer(false)}/>}
 
       {/* MESSAGES */}
       <div style={{flex:1,overflowY:"auto"}}>
@@ -1168,13 +1310,19 @@ ${convo}`,{cache:false,maxTokens:6000},true);
                 <RecipeCard card={m.card} color={p.color} hasImgKey={!!LS.get(OAI_LS)}
                   onToggleHave={(k)=>updateCard(m.card.id,c=>({...c,have:toggleIn(c.have,k)}))}
                   onToggleDone={(k)=>updateCard(m.card.id,c=>({...c,done:toggleIn(c.done,k)}))}
+                  onTimer={(t)=>startTimer&&startTimer(t)}
                   onReview={()=>sendText(`Chef, vamos repassar a lista de todos os ingredientes de "${m.card.title}" antes de começar. Me mande o cartão completo de novo, com a lista para eu marcar.`)}
                   onServings={(n)=>sendText(`Ajuste a receita "${m.card.title}" para ${n} pessoas e me mande o cartão completo de novo, com as quantidades recalculadas.`)}
                   onStart={()=>sendText(`Vamos começar a fazer ${m.card.title}!${m.card.have.length<m.card.ingredients.length?` Dos ingredientes, eu tenho: ${m.card.have.map(k=>m.card.ingredients[k].name).join(", ")||"(ainda não marquei)"}.`:" Tenho todos os ingredientes."} Me guie a partir do passo 1, uma ou duas etapas por vez.`)}/>
               ):m.isCookFeedback?(
                 <CookFeedback score={m.score} comment={m.comment} fix={m.fix} nextStep={m.nextStep} chefColor={p.color} emoji={p.emoji}/>
               ):(
-                m.text&&<div className={`cbbl ${m.role}`} style={{whiteSpace:"pre-wrap"}}>{String(m.text).split(/\*\*(.+?)\*\*/g).map((part,k)=>k%2?<b key={k}>{part}</b>:part)}</div>
+                <>{m.text&&<div className={`cbbl ${m.role}`} style={{whiteSpace:"pre-wrap"}}>{String(m.text).split(/\*\*(.+?)\*\*/g).map((part,k)=>k%2?<b key={k}>{part}</b>:part)}</div>}
+                {m.timers&&m.timers.map((t,k)=>(
+                  <button key={k} disabled={t.started} onClick={()=>{ startTimer&&startTimer(t); setMsgs(ms=>ms.map((x,j)=>j===i?{...x,timers:x.timers.map((y,q)=>q===k?{...y,started:true}:y)}:x)); }}
+                    style={{marginTop:6,alignSelf:"flex-start",background:t.started?"transparent":"rgba(255,184,0,.14)",border:`1px solid ${t.started?T.border:T.gold+"88"}`,borderRadius:20,padding:"7px 14px",color:t.started?T.muted:T.gold,fontSize:13,fontWeight:700,cursor:t.started?"default":"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    {t.started?"✓ Timer iniciado":"⏱ Iniciar"} {minLabel(t.minutes)} — {t.label}{t.stir>0?` · mexer a cada ${minLabel(t.stir)}`:""}
+                  </button>))}</>
               )}
             </div>
           ))}
@@ -1575,6 +1723,7 @@ function App() {
   useEffect(()=>{ LS.set("echefe_lang",lang); },[lang]);
   useEffect(()=>{ LS.set("echefe_prefs",JSON.stringify(prefs)); },[prefs]);
   const voice = useVoiceEngine(lang, (text)=>{ setScreen("chat"); setVoiceCmd({text,id:Date.now()}); }, chef);
+  const tm = useTimers((t)=>voice.speak(t));
   const L = LANGS[lang];
   const nav = [
     {id:"home",label:L.home,icon:IC.home},
@@ -1590,12 +1739,13 @@ function App() {
       <div className="main">
       <FireBG/>
       {screen==="home"   &&<Home go={setScreen} chef={chef} lang={lang}/>}
-      <div style={{display:screen==="chat"?"block":"none"}}><Chat key={chef+lang} chef={chef} lang={lang} prefs={prefs} voice={voice} voiceCmd={voiceCmd} seed={seed} go={setScreen}/></div>
+      <div style={{display:screen==="chat"?"block":"none"}}><Chat key={chef+lang} chef={chef} lang={lang} prefs={prefs} voice={voice} voiceCmd={voiceCmd} seed={seed} go={setScreen} startTimer={tm.add}/></div>
       {screen==="recipes"&&<Recipes lang={lang} onCookAgain={cookAgain}/>}
       {screen==="week"   &&<Week lang={lang} prefs={prefs}/>}
       {screen==="shop"   &&<Shop lang={lang} prefs={prefs}/>}
       {screen==="profile"&&<Profile chef={chef} setChef={setChef} lang={lang} setLang={setLang} prefs={prefs} setPrefs={setPrefs} voice={voice}/>}
       </div>
+      <TimerDock tm={tm}/>
       <nav className="bnav">
         {nav.map(x=>(
           <button key={x.id} className={`nb${screen===x.id?" on":""}`} onClick={()=>setScreen(x.id)}>
