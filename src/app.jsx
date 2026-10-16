@@ -267,7 +267,7 @@ function CookFeedback({ score, comment, fix, nextStep, chefColor, emoji }) {
 }
 
 // ─── HOME ─────────────────────────────────────────────────────────────────────
-function Home({ go, chef, lang }) {
+function Home({ go, chef, lang, onFeedback }) {
   const p = CHEFS[chef], L = LANGS[lang];
   return (
     <div className="screen">
@@ -286,6 +286,7 @@ function Home({ go, chef, lang }) {
           </button>
         ))}
       </div>
+      {inviteCode()&&workerURL()&&<button onClick={onFeedback} style={{display:"flex",alignItems:"center",gap:10,width:"calc(100% - 32px)",margin:"0 16px 14px",padding:"12px 14px",background:"rgba(255,184,0,.08)",border:"1px solid rgba(255,184,0,.3)",borderRadius:14,color:T.cream,fontSize:14,textAlign:"left",cursor:"pointer",fontFamily:"inherit"}}><span style={{fontSize:22}}>💬</span><span><b>Você é testador!</b><br/><span style={{fontSize:12,color:T.textSub}}>Toque aqui para mandar sua opinião ou dica</span></span></button>}
       <div className="sh"><div className="st">{L.quickSug}</div><div className="sl">{L.seeAll}</div></div>
       <div className="rrow">
         {RECIPES.map((r,i)=>(
@@ -314,6 +315,28 @@ const LS = {
   set:(k,v)=>{ try{ v?localStorage.setItem(k,v):localStorage.removeItem(k); }catch{} },
 };
 const KEY_LS = "echefe_api_key";
+// ─── TESTER MODE: invite code + "porteiro" server (keys stay on the server) ──
+const DEFAULT_WORKER = "";   // e.g. https://echefe.<conta>.workers.dev (also accepted via ?w= in the invite link)
+const WORKER_LS = "echefe_worker", INVITE_LS = "echefe_invite", INVITE_NAME_LS = "echefe_invite_name";
+(()=>{ try{
+  const q = new URLSearchParams(location.search);
+  const w = q.get("w"), c = q.get("c");
+  if(w && /^https:\/\/[\w.-]+(:\d+)?\/?$/.test(w)) localStorage.setItem(WORKER_LS, w.replace(/\/+$/,""));
+  if(c) localStorage.setItem("echefe_invite_pending", c.trim().toUpperCase());
+  if(w||c) history.replaceState(null,"",location.pathname);
+}catch{} })();
+const workerURL = ()=>(LS.get(WORKER_LS)||DEFAULT_WORKER).replace(/\/+$/,"");
+const inviteCode = ()=>LS.get(INVITE_LS).trim();
+const viaWorker = ()=>!!(inviteCode() && workerURL());
+const workerPost = (path, body, code)=>fetch(workerURL()+path,{method:"POST",headers:{"content-type":"application/json","x-echefe-code":code||inviteCode()},body:JSON.stringify(body||{})});
+async function checkInvite(code){
+  if(!workerURL()) return {ok:false,error:"no_server"};
+  try{ const r = await workerPost("/api/check",{},code); const d = await r.json().catch(()=>({})); return r.ok?{ok:true,...d}:{ok:false,error:d.error||"bad_code"}; }
+  catch{ return {ok:false,error:"offline"}; }
+}
+async function sendFeedback(text, rating){
+  try{ const r = await workerPost("/api/feedback",{text,rating}); return r.ok; }catch{ return false; }
+}
 const MODEL_LS = "echefe_model";
 const MODELS = ["claude-sonnet-4-5","claude-sonnet-5-5","claude-haiku-4-5-20251001"];
 
@@ -361,7 +384,8 @@ async function callModel(model, key, messages, maxTokens){
 async function askAI(input, opts, asJson){
   opts = opts||{};
   const key = LS.get(KEY_LS).trim();
-  if(!key) throw {code:"no_key"};
+  const useW = viaWorker();
+  if(!useW && !key) throw {code:"no_key"};
   const messages = typeof input==="string" ? [{role:"user",content:input}] : mergeTurns(input);
   if(opts.images){
     const list = Array.isArray(opts.images) ? opts.images : [opts.images];
@@ -373,7 +397,17 @@ async function askAI(input, opts, asJson){
   const saved = LS.get(MODEL_LS);
   const order = saved ? [saved,...MODELS.filter(m=>m!==saved)] : MODELS;
   let r;
-  try{
+  if(useW){
+    try{
+      const res = await workerPost("/api/claude",{messages, max_tokens:opts.maxTokens||(asJson?1200:900)});
+      let data=null; try{ data=await res.json(); }catch{}
+      r = {status:res.status,data};
+    }catch{ throw {code:"offline"}; }
+    if(r.status===429) throw {code:"limit"};
+    if(r.status===403) throw {code:"bad_invite"};
+    if(r.status!==200) throw {code:"server"};
+  }
+  else try{
     for(const model of order){
       r = await callModel(model, key, messages, opts.maxTokens|| (asJson?1200:900));
       const t = r.data&&r.data.error&&r.data.error.type;
@@ -401,7 +435,10 @@ async function askAI(input, opts, asJson){
 }
 
 const AI_ERR = (code)=>({
-  no_key:"Para eu responder, cole a sua chave da API na aba 👤 Perfil (é só uma vez). 🔑",
+  no_key:"Para eu responder, coloque o seu código de convite na aba 👤 Perfil (é só uma vez). 🎟️",
+  limit:"Você chegou ao limite de uso de hoje do teste. Amanhã libera de novo! 🙏",
+  bad_invite:"Seu código de convite não está ativo. Fale com quem te convidou. 🎟️",
+  server:"O chef está em manutenção rapidinho. Tente de novo em alguns minutos. 🔧",
   bad_key:"A chave da API não foi aceita. Confira na aba 👤 Perfil. 🔑",
   no_credit:"Sua conta da Anthropic está sem crédito. Adicione crédito em console.anthropic.com → Billing. 💳",
   rate_limited:"Muitas perguntas seguidas — espere um pouquinho e tente de novo. ⏳",
@@ -444,13 +481,16 @@ const audioEl = ()=>{ if(!_audio){ _audio=new Audio(); _audio.preload="auto"; } 
 let _unlocked=false;
 const unlockAudio = ()=>{ if(_unlocked) return; _unlocked=true; try{ audioEl().load(); }catch{} };
 async function speakAI(text, chef, lang){
-  const key = LS.get(OAI_LS).trim(); if(!key) return false;
+  const key = LS.get(OAI_LS).trim(); const useW = viaWorker();
+  if(!key && !useW) return false;
   const cv = CHEF_VOICE[chef]||CHEF_VOICE.mario;
   const ln = LANG_NAME[lang]||LANG_NAME.pt;
+  const instructions = `Fale em ${ln}, com ${cv.accent}. Tom animado, natural e encorajador, como quem está cozinhando junto com o usuário. Pronuncie as palavras em ${ln} de forma clara, mantendo o sotaque.`;
   try{
-    const r = await fetch("https://api.openai.com/v1/audio/speech",{method:"POST",headers:{"Authorization":"Bearer "+key,"Content-Type":"application/json"},
-      body:JSON.stringify({model:"gpt-4o-mini-tts",voice:cv.voice,input:text,response_format:"mp3",
-        instructions:`Fale em ${ln}, com ${cv.accent}. Tom animado, natural e encorajador, como quem está cozinhando junto com o usuário. Pronuncie as palavras em ${ln} de forma clara, mantendo o sotaque.`})});
+    const r = useW
+      ? await workerPost("/api/tts",{input:text,voice:cv.voice,instructions})
+      : await fetch("https://api.openai.com/v1/audio/speech",{method:"POST",headers:{"Authorization":"Bearer "+key,"Content-Type":"application/json"},
+          body:JSON.stringify({model:"gpt-4o-mini-tts",voice:cv.voice,input:text,response_format:"mp3",instructions})});
     if(!r.ok) return false;
     const blob = await r.blob();
     const a = audioEl();
@@ -497,9 +537,18 @@ const toThumbFromB64 = (b64, max)=>new Promise(res=>{
   img.onerror=()=>res(null);
   img.src="data:image/png;base64,"+b64;
 });
+const canImages = ()=>viaWorker() || !!LS.get(OAI_LS);
 async function genImage(desc){
-  const key = LS.get(OAI_LS).trim(); if(!key) return null;
   const prompt = `Realistic professional food photography, home kitchen, natural light, appetizing, close-up: ${desc}. No text, no logos, no faces.`;
+  if(viaWorker()){
+    try{
+      const r = await workerPost("/api/image",{prompt});
+      if(!r.ok) return null;
+      const d = await r.json();
+      return d&&d.b64 ? await toThumbFromB64(d.b64, 420) : null;
+    }catch{ return null; }
+  }
+  const key = LS.get(OAI_LS).trim(); if(!key) return null;
   const saved = LS.get(IMG_MODEL_LS);
   const order = saved ? [saved,...IMG_MODELS.filter(m=>m!==saved)] : IMG_MODELS;
   for(const model of order){
@@ -1158,7 +1207,7 @@ Responda APENAS com um objeto JSON, sem texto extra:
   const updateCard = (id, fn)=>setMsgs(ms=>ms.map(x=>x.card&&x.card.id===id?{...x,card:fn(x.card)}:x));
   const toggleIn = (arr,i)=>arr.includes(i)?arr.filter(x=>x!==i):[...arr,i];
   const fillPhotos = async(c)=>{
-    if(!LS.get(OAI_LS)) return;
+    if(!canImages()) return;
     const hero = await genImage(`${c.title}, finished dish beautifully plated`);
     if(!hero) return;                                   // no image access → keep icons
     updateCard(c.id, x=>({...x,hero}));
@@ -1307,7 +1356,7 @@ ${convo}`,{cache:false,maxTokens:6000},true);
                 </div>
               )}
               {m.card?(
-                <RecipeCard card={m.card} color={p.color} hasImgKey={!!LS.get(OAI_LS)}
+                <RecipeCard card={m.card} color={p.color} hasImgKey={canImages()}
                   onToggleHave={(k)=>updateCard(m.card.id,c=>({...c,have:toggleIn(c.have,k)}))}
                   onToggleDone={(k)=>updateCard(m.card.id,c=>({...c,done:toggleIn(c.done,k)}))}
                   onTimer={(t)=>startTimer&&startTimer(t)}
@@ -1492,14 +1541,19 @@ function Shop({ lang, prefs }) {
 }
 
 // ─── PROFILE ──────────────────────────────────────────────────────────────────
-function Profile({ chef, setChef, lang, setLang, prefs, setPrefs, voice }) {
+function Profile({ chef, setChef, lang, setLang, prefs, setPrefs, voice, onFeedback }) {
   const L = LANGS[lang];
   const [local, setLocal] = useState({...prefs});
   return (
     <div className="screen">
       <div className="hdr"><div className="logo" style={{fontSize:22}}>{L.profile}</div></div>
-      <ApiKeyCard/>
-      <VoiceKeyCard chef={chef} lang={lang}/>
+      <InviteCard/>
+      {inviteCode()&&workerURL() && <button className="bp" style={{width:"100%",margin:"0 0 12px"}} onClick={onFeedback}>💬 Enviar feedback / sugestão</button>}
+      {inviteCode() ? (
+        <details className="card"><summary style={{fontSize:12,color:T.muted,textTransform:"uppercase",letterSpacing:1,cursor:"pointer"}}>⚙️ Avançado: chaves próprias</summary>
+          <div style={{marginTop:10}}><ApiKeyCard/><VoiceKeyCard chef={chef} lang={lang}/></div>
+        </details>
+      ) : <><ApiKeyCard/><VoiceKeyCard chef={chef} lang={lang}/></>}
       <div className="card">
         <div style={{fontSize:12,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:1}}>🎙️ Ei Chef (voz)</div>
         <div style={{fontSize:13,color:T.cream,lineHeight:1.5,marginBottom:10}}>
@@ -1613,6 +1667,106 @@ function VoiceKeyCard({ chef, lang }){
   );
 }
 
+
+// ─── INVITE (tester) + FEEDBACK ──────────────────────────────────────────────
+const INV_ERR = {bad_code:"Código não encontrado ou desativado. Confira com quem te convidou.",offline:"Sem internet agora. Confira a conexão. 📶",no_server:"Abra o app pelo link do convite que você recebeu (ele já traz o endereço do chef)."};
+function useInviteForm(onDone){
+  const [code, setCode] = useState(()=>LS.get("echefe_invite_pending")||"");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const submit = async(c)=>{
+    const v = String(c!=null?c:code).trim().toUpperCase(); if(!v) return;
+    setBusy(true); setErr("");
+    const r = await checkInvite(v);
+    setBusy(false);
+    if(r.ok){ LS.set(INVITE_LS,v); LS.set(INVITE_NAME_LS,r.name||""); LS.set("echefe_invite_pending",""); onDone&&onDone(r); }
+    else setErr(INV_ERR[r.error]||INV_ERR.bad_code);
+  };
+  return {code,setCode,busy,err,submit};
+}
+
+function Welcome({ onDone, onOwnKey }){
+  const [hello, setHello] = useState("");
+  const f = useInviteForm((r)=>{ setHello(r.name||""); setTimeout(onDone,1800); });
+  useEffect(()=>{ if(f.code && workerURL()) f.submit(f.code); },[]);
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:500,background:"rgba(10,6,0,.97)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{width:"100%",maxWidth:380,textAlign:"center"}}>
+        <div className="logo" style={{fontSize:34}}>e<span>Chef</span>e</div>
+        {hello!=="" ? <>
+          <div style={{fontSize:54,margin:"18px 0 6px"}}>👨‍🍳</div>
+          <div style={{fontSize:20,fontWeight:700,color:T.cream}}>Bem-vindo{hello?`, ${hello}`:""}!</div>
+          <div style={{fontSize:14,color:T.textSub,marginTop:6}}>Seu chef está pronto. Bora cozinhar!</div>
+        </> : <>
+          <div style={{fontSize:15,color:T.cream,lineHeight:1.5,margin:"14px 0 18px"}}>Você foi convidado para testar o eChefe, seu chef particular com IA. 🎉<br/>Digite o seu <b>código de convite</b>:</div>
+          <input className="ci" style={{width:"100%",borderRadius:14,textAlign:"center",fontSize:18,letterSpacing:1,textTransform:"uppercase"}} placeholder="EX.: MARIA-1234" value={f.code} onChange={e=>f.setCode(e.target.value)} onKeyDown={e=>e.key==="Enter"&&f.submit()} autoCapitalize="characters" autoComplete="off" spellCheck={false}/>
+          <button className="bp" style={{width:"100%",margin:"12px 0 0"}} onClick={()=>f.submit()} disabled={f.busy}>{f.busy?"⏳ Conferindo...":"Entrar"}</button>
+          {f.err&&<div style={{fontSize:13,color:T.gold,marginTop:10,lineHeight:1.4}}>{f.err}</div>}
+          <button onClick={onOwnKey} style={{background:"none",border:"none",color:T.muted,fontSize:12,marginTop:22,cursor:"pointer",textDecoration:"underline"}}>Tenho minha própria chave da IA</button>
+        </>}
+      </div>
+    </div>
+  );
+}
+
+function InviteCard(){
+  const [cur, setCur] = useState(inviteCode());
+  const [editing, setEditing] = useState(!inviteCode());
+  const f = useInviteForm(()=>{ setCur(inviteCode()); setEditing(false); });
+  const name = LS.get(INVITE_NAME_LS);
+  return (
+    <div className="card">
+      <div style={{fontSize:12,color:T.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>🎟️ Código de convite</div>
+      {cur&&!editing ? <>
+        <div style={{fontSize:14,color:T.cream}}>{name?<>Olá, <b>{name}</b>! </>:null}Você está usando o código <b style={{color:T.gold}}>{cur}</b>. ✅</div>
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          <button className="pbtn" style={{borderRadius:12,flex:1}} onClick={()=>setEditing(true)}>Trocar código</button>
+          <button className="pbtn" style={{borderRadius:12,flex:1}} onClick={()=>{ LS.set(INVITE_LS,""); LS.set(INVITE_NAME_LS,""); setCur(""); setEditing(true); }}>Sair</button>
+        </div>
+      </> : <>
+        <div style={{fontSize:12,color:T.textSub,lineHeight:1.5,marginBottom:10}}>Recebeu um convite para testar? Digite o código aqui.</div>
+        <div style={{display:"flex",gap:8}}>
+          <input className="ci" style={{borderRadius:12,minWidth:0,textTransform:"uppercase"}} placeholder="MARIA-1234" value={f.code} onChange={e=>f.setCode(e.target.value)} autoCapitalize="characters" autoComplete="off" spellCheck={false}/>
+          <button className="pbtn" style={{borderRadius:12}} onClick={()=>f.submit()} disabled={f.busy}>{f.busy?"⏳":"OK"}</button>
+        </div>
+        {f.err&&<div style={{fontSize:13,color:T.gold,marginTop:8}}>{f.err}</div>}
+      </>}
+    </div>
+  );
+}
+
+function FeedbackSheet({ onClose }){
+  const [rating, setRating] = useState(0);
+  const [text, setText] = useState("");
+  const [state, setState] = useState("");
+  const send = async()=>{
+    if(!text.trim() && !rating) return;
+    setState("sending");
+    const ok = await sendFeedback(text.trim(), rating);
+    setState(ok?"ok":"err");
+    if(ok) setTimeout(onClose,1600);
+  };
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,background:"#140E00",borderTop:`1px solid ${T.border}`,borderRadius:"20px 20px 0 0",padding:"16px 16px 22px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:16,fontWeight:700,color:T.cream}}>💬 Enviar feedback</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:T.muted,fontSize:20,cursor:"pointer"}}>✕</button>
+        </div>
+        {state==="ok" ? <div style={{fontSize:15,color:T.green,padding:"24px 0",textAlign:"center"}}>✅ Obrigado! Sua opinião vai deixar o eChefe melhor. 🙏</div> : <>
+          <div style={{fontSize:13,color:T.textSub,margin:"8px 0 10px"}}>O que achou? O que pode melhorar? Deu algum erro?</div>
+          <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:10}}>
+            {[1,2,3,4,5].map(n=><button key={n} onClick={()=>setRating(n)} style={{background:"none",border:"none",fontSize:30,cursor:"pointer",outline:"none",WebkitTapHighlightColor:"transparent",filter:n<=rating?"none":"grayscale(1) opacity(.4)"}}>⭐</button>)}
+          </div>
+          <textarea className="ci" style={{width:"100%",borderRadius:12,minHeight:110,resize:"vertical",fontFamily:"inherit"}} placeholder="Escreva aqui sua dica, sugestão ou problema..." value={text} onChange={e=>setText(e.target.value)} maxLength={2000}/>
+          <button className="bp" style={{width:"100%",margin:"10px 0 0"}} onClick={send} disabled={state==="sending"}>{state==="sending"?"⏳ Enviando...":"Enviar"}</button>
+          {state==="err"&&<div style={{fontSize:13,color:T.gold,marginTop:8}}>Não consegui enviar agora. Confira a internet e tente de novo.</div>}
+        </>}
+      </div>
+    </div>
+  );
+}
+
 // ─── API KEY CARD ─────────────────────────────────────────────────────────────
 function ApiKeyCard(){
   const [key, setKey] = useState(()=>LS.get(KEY_LS));
@@ -1715,6 +1869,8 @@ function App() {
   const [prefs, setPrefs] = useState(()=>{ const d={cuisine:"Brasileira",diet:"Sem restrição",level:"🌱 Iniciante",appliance:"🔥 Fogão a gás"}; try{ return JSON.parse(LS.get("echefe_prefs"))||d; }catch{ return d; } });
   const [voiceCmd, setVoiceCmd] = useState(null);
   const [seed, setSeed] = useState(null);
+  const [fbOpen, setFbOpen] = useState(false);
+  const [welcome, setWelcome] = useState(()=>!inviteCode() && !LS.get(KEY_LS));
   const cookAgain = (r)=>{
     const txt = `Quero fazer de novo a minha receita "${r.title}", do meu jeito, com os mesmos ajustes. Guie um passo de cada vez.\n\nRECEITA SALVA:\nRende: ${r.servings} · Tempo: ${r.time}\nIngredientes: ${r.ingredients.join("; ")}\nPreparo: ${r.steps.map((x,i)=>(i+1)+". "+x).join(" ")}\nMeus ajustes: ${(r.adjustments||[]).join("; ")}${r.notes?"\nMinhas anotações: "+r.notes:""}`;
     setScreen("chat"); setSeed({text:txt,id:Date.now()});
@@ -1738,14 +1894,16 @@ function App() {
       <VoiceBar v={voice} chefName={CHEFS[chef].name}/>
       <div className="main">
       <FireBG/>
-      {screen==="home"   &&<Home go={setScreen} chef={chef} lang={lang}/>}
+      {screen==="home"   &&<Home go={setScreen} chef={chef} lang={lang} onFeedback={()=>setFbOpen(true)}/>}
       <div style={{display:screen==="chat"?"block":"none"}}><Chat key={chef+lang} chef={chef} lang={lang} prefs={prefs} voice={voice} voiceCmd={voiceCmd} seed={seed} go={setScreen} startTimer={tm.add}/></div>
       {screen==="recipes"&&<Recipes lang={lang} onCookAgain={cookAgain}/>}
       {screen==="week"   &&<Week lang={lang} prefs={prefs}/>}
       {screen==="shop"   &&<Shop lang={lang} prefs={prefs}/>}
-      {screen==="profile"&&<Profile chef={chef} setChef={setChef} lang={lang} setLang={setLang} prefs={prefs} setPrefs={setPrefs} voice={voice}/>}
+      {screen==="profile"&&<Profile chef={chef} setChef={setChef} lang={lang} setLang={setLang} prefs={prefs} setPrefs={setPrefs} voice={voice} onFeedback={()=>setFbOpen(true)}/>}
       </div>
       <TimerDock tm={tm}/>
+      {fbOpen&&<FeedbackSheet onClose={()=>setFbOpen(false)}/>}
+      {welcome&&<Welcome onDone={()=>{ setWelcome(false); setScreen("home"); }} onOwnKey={()=>{ setWelcome(false); setScreen("profile"); }}/>}
       <nav className="bnav">
         {nav.map(x=>(
           <button key={x.id} className={`nb${screen===x.id?" on":""}`} onClick={()=>setScreen(x.id)}>
